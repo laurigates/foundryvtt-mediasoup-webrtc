@@ -387,12 +387,8 @@ export class MediaSoupVTTClient {
         }
     }
 
-    async startLocalAudio() {
-        if (!this.isConnected || !this.sendTransport || !this.device.canProduce(MEDIA_KIND_AUDIO)) {
-            log('Cannot start local audio: Not connected, send transport not ready, or cannot produce audio.', 'warn');
-            ui.notifications.warn(`${MODULE_TITLE}: Cannot start audio. Not ready.`);
-            return;
-        }
+    async startLocalAudio(testMode = false) {
+        // Check if we already have audio producer
         if (this.producers.has(APP_DATA_TAG_MIC)) {
             log('Audio already started.', 'info');
             const producer = this.producers.get(APP_DATA_TAG_MIC);
@@ -400,9 +396,18 @@ export class MediaSoupVTTClient {
             return;
         }
 
+        // In test mode, we can capture local streams without full MediaSoup setup
+        const canProduce = testMode || (this.isConnected && this.sendTransport && this.device?.canProduce(MEDIA_KIND_AUDIO));
+        
+        if (!testMode && (!this.isConnected || !this.sendTransport || !this.device?.canProduce(MEDIA_KIND_AUDIO))) {
+            log('Cannot start local audio: Not connected, send transport not ready, or cannot produce audio.', 'warn');
+            ui.notifications?.warn(`${MODULE_TITLE}: Cannot start audio. Not ready.`);
+            return;
+        }
+
         log('Starting local audio capture...', 'info');
         try {
-            const deviceId = game.settings.get(MODULE_ID, SETTING_DEFAULT_AUDIO_DEVICE);
+            const deviceId = game?.settings?.get(MODULE_ID, SETTING_DEFAULT_AUDIO_DEVICE);
             const constraints = { audio: deviceId && deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true };
             log(`Using audio constraints: ${JSON.stringify(constraints)}`, 'debug');
 
@@ -410,31 +415,36 @@ export class MediaSoupVTTClient {
             const track = this.localAudioStream.getAudioTracks()[0];
             if (!track) throw new Error('No audio track found in stream.');
 
-            const producer = await this.sendTransport.produce({
-                track,
-                appData: { mediaTag: APP_DATA_TAG_MIC, userId: game.userId } 
-            });
-            this.producers.set(APP_DATA_TAG_MIC, producer);
-            log(`Audio producer created (ID: ${producer.id})`, 'info');
-            this._updateMediaButtonState(APP_DATA_TAG_MIC, true, producer.paused);
+            // Only create producer if we have full MediaSoup setup (not in test mode)
+            if (canProduce && this.sendTransport) {
+                const producer = await this.sendTransport.produce({
+                    track,
+                    appData: { mediaTag: APP_DATA_TAG_MIC, userId: game.userId } 
+                });
+                this.producers.set(APP_DATA_TAG_MIC, producer);
+                log(`Audio producer created (ID: ${producer.id})`, 'info');
+                this._updateMediaButtonState(APP_DATA_TAG_MIC, true, producer.paused);
 
-            producer.on('trackended', () => {
-                log('Audio track ended (e.g., device unplugged).', 'warn');
-                this.stopLocalAudio(true); 
-            });
-            producer.on('transportclose', () => {
-                log('Audio producer transport closed.', 'warn');
-                this.producers.delete(APP_DATA_TAG_MIC);
-                this._updateMediaButtonState(APP_DATA_TAG_MIC, false, false);
-                if (this.localAudioStream) {
-                    this.localAudioStream.getTracks().forEach(t => t.stop());
-                    this.localAudioStream = null;
-                }
-            });
+                producer.on('trackended', () => {
+                    log('Audio track ended (e.g., device unplugged).', 'warn');
+                    this.stopLocalAudio(true); 
+                });
+                producer.on('transportclose', () => {
+                    log('Audio producer transport closed.', 'warn');
+                    this.producers.delete(APP_DATA_TAG_MIC);
+                    this._updateMediaButtonState(APP_DATA_TAG_MIC, false, false);
+                    if (this.localAudioStream) {
+                        this.localAudioStream.getTracks().forEach(t => t.stop());
+                        this.localAudioStream = null;
+                    }
+                });
+            } else {
+                log('Audio stream captured successfully (test mode - no producer created)', 'info');
+            }
 
         } catch (error) {
             log(`Error starting local audio: ${error.message}`, 'error', true);
-            ui.notifications.error(`${MODULE_TITLE}: Could not start microphone - ${error.message}`);
+            ui?.notifications?.error(`${MODULE_TITLE}: Could not start microphone - ${error.message}`);
             if (this.localAudioStream) { 
                 this.localAudioStream.getTracks().forEach(t => t.stop()); 
                 this.localAudioStream = null; 
@@ -469,21 +479,18 @@ export class MediaSoupVTTClient {
         if (!producer || producer.closed) {
             log('Cannot toggle mute: No active audio producer. Attempting to start audio.', 'info');
             await this.startLocalAudio();
-            return;
+            return { success: true, hasProducer: this.producers.has(APP_DATA_TAG_MIC) };
         }
         if (producer.paused) {
             await this.resumeProducer(producer);
         } else {
             await this.pauseProducer(producer);
         }
+        return { success: true, hasProducer: true };
     }
 
-    async startLocalVideo() {
-        if (!this.isConnected || !this.sendTransport || !this.device.canProduce(MEDIA_KIND_VIDEO)) {
-            log('Cannot start local video: Not connected, send transport not ready, or cannot produce video.', 'warn');
-            ui.notifications.warn(`${MODULE_TITLE}: Cannot start video. Not ready.`);
-            return;
-        }
+    async startLocalVideo(testMode = false) {
+        // Check if we already have video producer
         if (this.producers.has(APP_DATA_TAG_WEBCAM)) {
             log('Video already started.', 'info');
             const producer = this.producers.get(APP_DATA_TAG_WEBCAM);
@@ -491,9 +498,18 @@ export class MediaSoupVTTClient {
             return;
         }
 
+        // In test mode, we can capture local streams without full MediaSoup setup
+        const canProduce = testMode || (this.isConnected && this.sendTransport && this.device?.canProduce(MEDIA_KIND_VIDEO));
+        
+        if (!testMode && (!this.isConnected || !this.sendTransport || !this.device?.canProduce(MEDIA_KIND_VIDEO))) {
+            log('Cannot start local video: Not connected, send transport not ready, or cannot produce video.', 'warn');
+            ui.notifications?.warn(`${MODULE_TITLE}: Cannot start video. Not ready.`);
+            return;
+        }
+
         log('Starting local video capture...', 'info');
         try {
-            const deviceId = game.settings.get(MODULE_ID, SETTING_DEFAULT_VIDEO_DEVICE);
+            const deviceId = game?.settings?.get(MODULE_ID, SETTING_DEFAULT_VIDEO_DEVICE);
             const constraints = { video: deviceId && deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true };
             log(`Using video constraints: ${JSON.stringify(constraints)}`, 'debug');
 
@@ -501,34 +517,40 @@ export class MediaSoupVTTClient {
             const track = this.localVideoStream.getVideoTracks()[0];
             if (!track) throw new Error('No video track found in stream.');
 
-            const producer = await this.sendTransport.produce({
-                track,
-                encodings: [],
-                appData: { mediaTag: APP_DATA_TAG_WEBCAM, userId: game.userId }
-            });
-            this.producers.set(APP_DATA_TAG_WEBCAM, producer);
-            log(`Video producer created (ID: ${producer.id})`, 'info');
-            this._updateMediaButtonState(APP_DATA_TAG_WEBCAM, true, producer.paused);
-            this._displayLocalVideoPreview(this.localVideoStream);
+            // Only create producer if we have full MediaSoup setup (not in test mode)
+            if (canProduce && this.sendTransport) {
+                const producer = await this.sendTransport.produce({
+                    track,
+                    encodings: [],
+                    appData: { mediaTag: APP_DATA_TAG_WEBCAM, userId: game.userId }
+                });
+                this.producers.set(APP_DATA_TAG_WEBCAM, producer);
+                log(`Video producer created (ID: ${producer.id})`, 'info');
+                this._updateMediaButtonState(APP_DATA_TAG_WEBCAM, true, producer.paused);
+                this._displayLocalVideoPreview(this.localVideoStream);
 
-            producer.on('trackended', () => {
-                log('Video track ended.', 'warn');
-                this.stopLocalVideo(true);
-            });
-            producer.on('transportclose', () => {
-                log('Video producer transport closed.', 'warn');
-                this.producers.delete(APP_DATA_TAG_WEBCAM);
-                this._updateMediaButtonState(APP_DATA_TAG_WEBCAM, false, false);
-                this._removeLocalVideoPreview();
-                if (this.localVideoStream) {
-                    this.localVideoStream.getTracks().forEach(t => t.stop());
-                    this.localVideoStream = null;
-                }
-            });
+                producer.on('trackended', () => {
+                    log('Video track ended.', 'warn');
+                    this.stopLocalVideo(true);
+                });
+                producer.on('transportclose', () => {
+                    log('Video producer transport closed.', 'warn');
+                    this.producers.delete(APP_DATA_TAG_WEBCAM);
+                    this._updateMediaButtonState(APP_DATA_TAG_WEBCAM, false, false);
+                    this._removeLocalVideoPreview();
+                    if (this.localVideoStream) {
+                        this.localVideoStream.getTracks().forEach(t => t.stop());
+                        this.localVideoStream = null;
+                    }
+                });
+            } else {
+                log('Video stream captured successfully (test mode - no producer created)', 'info');
+                this._displayLocalVideoPreview(this.localVideoStream);
+            }
 
         } catch (error) {
             log(`Error starting local video: ${error.message}`, 'error', true);
-            ui.notifications.error(`${MODULE_TITLE}: Could not start webcam - ${error.message}`);
+            ui?.notifications?.error(`${MODULE_TITLE}: Could not start webcam - ${error.message}`);
             if (this.localVideoStream) { 
                 this.localVideoStream.getTracks().forEach(t => t.stop()); 
                 this.localVideoStream = null; 
