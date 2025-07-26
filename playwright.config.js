@@ -22,7 +22,12 @@ export default defineConfig({
   workers: 1,
   
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: [
+  reporter: process.env.CI ? [
+    ['list'],
+    ['github'],
+    ['json', { outputFile: 'tests/results/results.json' }],
+    ['junit', { outputFile: 'tests/results/junit.xml' }]
+  ] : [
     ['html', { outputFolder: 'tests/results/html-report' }],
     ['json', { outputFile: 'tests/results/results.json' }],
     ['junit', { outputFile: 'tests/results/junit.xml' }]
@@ -31,7 +36,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:3000',
+    baseURL: process.env.CI ? 'http://localhost:3000?ci=true' : 'http://localhost:3000',
     
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -42,11 +47,11 @@ export default defineConfig({
     /* Capture video on failure */
     video: 'retain-on-failure',
     
-    /* Global timeout for each test */
-    actionTimeout: 30000,
+    /* Action timeout - increase for CI environment */
+    actionTimeout: process.env.CI ? 90000 : 30000, // 90s in CI, 30s locally
     
-    /* Navigation timeout */
-    navigationTimeout: 30000,
+    /* Navigation timeout - increase for CI environment */
+    navigationTimeout: process.env.CI ? 90000 : 30000, // 90s in CI, 30s locally
   },
 
   /* Configure projects for major browsers */
@@ -55,17 +60,36 @@ export default defineConfig({
       name: 'chromium-webrtc',
       use: { 
         ...devices['Desktop Chrome'],
-        // Minimal Chrome flags for basic testing
+        // Chrome flags for testing with CI and OS-specific optimizations
         launchOptions: {
           args: [
-            // Essential testing flags
+            // Essential testing flags only
             '--disable-web-security',
             '--allow-file-access-from-files',
-            // Enable fake media devices for testing
             '--use-fake-ui-for-media-stream',
             '--use-fake-device-for-media-stream',
             '--allow-running-insecure-content',
+            // Minimal CI flags to prevent browser crashes
+            ...(process.env.CI ? [
+              '--no-sandbox',
+              '--disable-setuid-sandbox', 
+              '--disable-dev-shm-usage',
+              '--disable-extensions',
+              '--disable-plugins',
+              '--no-first-run',
+              '--mute-audio',
+              // OS-specific minimal flags
+              ...(process.platform === 'win32' ? [
+                '--disable-gpu',
+              ] : []),
+            ] : []),
           ],
+          // OS-specific timeout adjustments
+          timeout: process.env.CI ? (
+            process.platform === 'win32' ? 60000 : // Windows needs more time
+            process.platform === 'darwin' ? 45000 : // macOS is typically faster
+            30000 // Linux default
+          ) : 30000,
         },
         
         // Grant permissions for media devices
@@ -78,32 +102,44 @@ export default defineConfig({
       },
     },
     
-    // Disable other browsers for now due to large bundle causing instability
-    // {
-    //   name: 'firefox-webrtc',
-    //   use: { 
-    //     ...devices['Desktop Firefox'],
-    //     launchOptions: {
-    //       firefoxUserPrefs: {
-    //         'media.navigator.streams.fake': true,
-    //         'media.navigator.permission.disabled': true,
-    //       }
-    //     },
-    //     permissions: ['camera', 'microphone'],
-    //   },
-    // },
+    {
+      name: 'firefox-webrtc',
+      use: { 
+        ...devices['Desktop Firefox'],
+        launchOptions: {
+          firefoxUserPrefs: {
+            'media.navigator.streams.fake': true,
+            'media.navigator.permission.disabled': true,
+            // Minimal Firefox settings for CI stability
+            ...(process.env.CI ? {
+              'dom.webnotifications.enabled': false,
+              'browser.shell.checkDefaultBrowser': false,
+              'browser.tabs.warnOnClose': false,
+            } : {}),
+          },
+          // Minimal Firefox args for CI
+          args: process.env.CI ? [
+            '--no-remote',
+            '--disable-extensions',
+            '--no-first-run',
+          ] : [],
+        },
+        // Firefox doesn't support camera/microphone permissions in this context
+        // Using firefoxUserPrefs instead to handle media access
+      },
+    },
   ],
 
   /* Global setup and teardown */
   globalSetup: './tests/integration/setup/global-setup.js',
   globalTeardown: './tests/integration/setup/global-teardown.js',
   
-  /* Test timeout */
-  timeout: 60000, // 1 minute per test
+  /* Test timeout - increase for CI environment */
+  timeout: process.env.CI ? 180000 : 60000, // 3 minutes in CI, 1 minute locally
   
-  /* Expect timeout */
+  /* Expect timeout - increase for CI environment */
   expect: {
-    timeout: 15000,
+    timeout: process.env.CI ? 45000 : 15000, // 45s in CI, 15s locally
   },
   
   /* Test file patterns */
@@ -124,6 +160,6 @@ export default defineConfig({
     port: 3000,
     cwd: '.',
     reuseExistingServer: !process.env.CI,
-    timeout: 10000,
+    timeout: process.env.CI ? 15000 : 10000,
   }
 });

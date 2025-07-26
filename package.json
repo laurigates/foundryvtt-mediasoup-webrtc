@@ -36,16 +36,17 @@
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.53.1",
+    "@eslint/js": "^9.31.0",
+    "@playwright/test": "^1.54.1",
     "@rollup/plugin-commonjs": "^28.0.6",
-    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-node-resolve": "^16.0.1",
     "@rollup/plugin-terser": "^0.4.4",
-    "eslint": "^8.57.0",
-    "rimraf": "^5.0.5",
-    "rollup": "^4.9.6"
+    "eslint": "^9.31.0",
+    "rimraf": "^6.0.1",
+    "rollup": "^4.45.0"
   },
   "dependencies": {
-    "mediasoup-client": "^3.7.6"
+    "mediasoup-client": "^3.12.5"
   },
   "peerDependencies": {
     "socket.io-client": "^4.7.4"

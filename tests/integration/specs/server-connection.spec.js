@@ -244,24 +244,69 @@ test.describe('MediaSoup Server Connection', () => {
   });
   
   test('should handle WebSocket errors gracefully', async () => {
-    // Mock WebSocket to simulate errors
+    // Set up error capture array
     await page.evaluate(() => {
       window.testWebSocketErrors = [];
-      
+    });
+    
+    // Mock WebSocket to simulate errors more effectively
+    await page.evaluate(() => {
       const OriginalWebSocket = window.WebSocket;
       window.WebSocket = function(url) {
+        console.log('WebSocket constructor called with URL:', url);
+        window.testWebSocketErrors.push({
+          action: 'constructor_called',
+          url,
+          timestamp: Date.now()
+        });
+        
         const ws = new OriginalWebSocket(url);
         
-        // Capture errors
-        const originalError = ws.onerror;
-        ws.onerror = function(error) {
-          window.testWebSocketErrors.push({
-            url,
-            error: error.type || 'error',
-            timestamp: Date.now()
-          });
-          if (originalError) originalError.call(this, error);
-        };
+        // Override the onerror assignment to capture errors
+        let clientErrorHandler = null;
+        Object.defineProperty(ws, 'onerror', {
+          get: function() {
+            return clientErrorHandler;
+          },
+          set: function(handler) {
+            clientErrorHandler = function(error) {
+              console.log('WebSocket error captured:', error);
+              window.testWebSocketErrors.push({
+                action: 'error_event',
+                url,
+                error: error.type || 'error',
+                timestamp: Date.now()
+              });
+              if (handler) handler.call(this, error);
+            };
+            // Set the actual onerror to our wrapper
+            ws.addEventListener('error', clientErrorHandler);
+          }
+        });
+        
+        // Also capture close events as they indicate connection failure
+        let clientCloseHandler = null;
+        Object.defineProperty(ws, 'onclose', {
+          get: function() {
+            return clientCloseHandler;
+          },
+          set: function(handler) {
+            clientCloseHandler = function(event) {
+              console.log('WebSocket close captured:', event);
+              window.testWebSocketErrors.push({
+                action: 'close_event',
+                url,
+                code: event.code,
+                reason: event.reason,
+                wasClean: event.wasClean,
+                timestamp: Date.now()
+              });
+              if (handler) handler.call(this, event);
+            };
+            // Set the actual onclose to our wrapper
+            ws.addEventListener('close', clientCloseHandler);
+          }
+        });
         
         return ws;
       };
@@ -283,16 +328,31 @@ test.describe('MediaSoup Server Connection', () => {
       try {
         await window.MediaSoupVTT_Client.connect();
       } catch (error) {
-        // Expected
+        console.log('Connect method threw error:', error.message);
+        // Expected - connection should fail
       }
     });
     
-    // Wait for error handling
-    await page.waitForTimeout(3000);
+    // Wait for error handling (increased timeout to allow for connection timeout)
+    await page.waitForTimeout(5000);
     
     // Check that errors were captured
     const errors = await page.evaluate(() => window.testWebSocketErrors);
+    console.log('Captured WebSocket events:', errors);
+    
+    // We should have at least captured the WebSocket constructor call and some form of error/close event
     expect(errors.length).toBeGreaterThan(0);
+    
+    // More specific checks - we should have either error events or close events indicating failure
+    const errorEvents = errors.filter(e => e.action === 'error_event');
+    const closeEvents = errors.filter(e => e.action === 'close_event');
+    const constructorCalls = errors.filter(e => e.action === 'constructor_called');
+    
+    // Should have at least called the WebSocket constructor
+    expect(constructorCalls.length).toBeGreaterThan(0);
+    
+    // Should have either error events or close events (or both) indicating connection failure
+    expect(errorEvents.length + closeEvents.length).toBeGreaterThan(0);
   });
   
   test('should clean up resources on disconnect', async () => {

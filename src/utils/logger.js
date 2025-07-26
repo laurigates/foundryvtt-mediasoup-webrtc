@@ -9,7 +9,7 @@ export function log(message, level = 'info', force = false) {
     let settingDebug = false;
     try {
         settingDebug = game.settings.get(MODULE_ID, SETTING_DEBUG_LOGGING);
-    } catch (error) {
+    } catch (_error) {
         // Setting not yet registered, use default
         settingDebug = false;
     }

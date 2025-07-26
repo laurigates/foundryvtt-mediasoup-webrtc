@@ -56,7 +56,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
         cache: 'npm'
     
     - name: Install dependencies
@@ -89,7 +89,7 @@ jobs:
         fi
       
     - name: Run integration tests
-      run: npx playwright test --project=${{ matrix.browser }}-webrtc --reporter=github
+      run: npx playwright test --project=${{ matrix.browser }}-webrtc
       env:
         CI: true
         WEBRTC_DEBUG: false
@@ -165,9 +165,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     strategy:
+      fail-fast: false  # Allow other OS tests to continue if one fails
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [18, 20]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+        node-version: [20, 22]
+        exclude:
+          # Reduce matrix complexity - only test Node 22 on Ubuntu
+          - os: macos-latest
+            node-version: 22
+          - os: windows-latest  
+            node-version: 22
         
     steps:
     - uses: actions/checkout@v4
@@ -195,10 +202,73 @@ jobs:
     - name: Install Playwright (Chromium only for smoke test)
       run: npx playwright install chromium
       
+    - name: Configure OS-specific optimizations
+      run: |
+        # Ubuntu-specific optimizations
+        if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+          sudo apt-get update -q
+          sudo apt-get install -y xvfb
+        fi
+        
+        # macOS-specific optimizations  
+        if [[ "${{ matrix.os }}" == "macos"* ]]; then
+          echo "Configuring macOS for testing..."
+          # Grant microphone/camera permissions (best effort)
+          sudo tccutil reset Microphone || true
+          sudo tccutil reset Camera || true
+        fi
+        
+        # Windows-specific optimizations
+        if [[ "${{ matrix.os }}" == "windows"* ]]; then
+          echo "Configuring Windows for testing..."
+          # Add Windows Defender exclusions
+          powershell -Command "Add-MpPreference -ExclusionPath '${{ github.workspace }}' -Force" || true
+        fi
+      shell: bash
+      
     - name: Run basic smoke tests
-      run: npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc
+      run: |
+        # Ubuntu: Use xvfb for headless display
+        if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc
+        else
+          npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc
+        fi
+      shell: bash
       env:
         CI: true
+        # OS-specific environment variables
+        PWTEST_SKIP_DOCKER: 1
+        NODE_OPTIONS: --max-old-space-size=4096
+        
+    - name: Upload smoke test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: smoke-test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: |
+          tests/results/
+          test-results/
+          screenshots/
+        retention-days: 30
+        
+    - name: Log system information on failure
+      if: failure()
+      run: |
+        echo "=== System Information ==="
+        echo "OS: ${{ matrix.os }}"
+        echo "Node: ${{ matrix.node-version }}"
+        echo "Runner: ${{ runner.os }}"
+        echo "Platform: $(uname -a)"
+        echo "Memory: $(free -h 2>/dev/null || vm_stat || systeminfo | findstr Memory)"
+        echo "Disk: $(df -h 2>/dev/null || dir || Get-WmiObject -Class Win32_LogicalDisk)"
+        echo "Processes: $(ps aux | head -20 2>/dev/null || tasklist | head -20)"
+        echo "=== Browser Processes ==="
+        ps aux | grep -E "(chrome|chromium|firefox)" | head -10 || true
+        echo "=== Test Artifacts ==="
+        find tests/results test-results -type f -name "*.log" -o -name "*.json" -o -name "*.xml" 2>/dev/null | head -10 || true
+      shell: bash
 
   # Security and dependency checks
   security-audit:
@@ -211,7 +281,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
         cache: 'npm'
     
     - name: Install dependencies
@@ -219,9 +289,6 @@ jobs:
       
     - name: Run npm audit
       run: npm audit --audit-level=moderate
-      
-    - name: Check for known vulnerabilities
-      run: npx audit-ci --moderate
       
     - name: Install Rust for server audit
       if: hashFiles('server/Cargo.toml') != ''

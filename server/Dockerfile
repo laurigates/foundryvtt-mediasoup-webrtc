@@ -22,9 +22,10 @@ RUN cargo build --release
 # Runtime stage
 FROM debian:bullseye-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including curl for health checks
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -42,12 +43,12 @@ USER mediasoup
 WORKDIR /app
 
 # Expose ports
-EXPOSE 3000
+EXPOSE 4443
 EXPOSE 10000-10100/udp
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD curl -f http://localhost:4443/health || exit 1
 
 # Run the application
 CMD ["mediasoup-server"]

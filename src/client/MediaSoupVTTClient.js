@@ -299,16 +299,16 @@ export class MediaSoupVTTClient {
             return;
         }
         switch (message.type) {
-            case SIG_MSG_TYPES.NEW_PRODUCER:
-                log(`Server notified of new producer: ${message.producerId} for user ${message.userId} of kind ${message.kind}`, 'info');
-                this._handleNewRemoteProducer(message);
-                break;
-            case SIG_MSG_TYPES.PRODUCER_CLOSED:
-                log(`Server notified producer closed: ${message.producerId}`, 'info');
-                this._handleRemoteProducerClosed(message.producerId);
-                break;
-            default:
-                log(`Received unhandled signaling message type: ${message.type}`, 'warn');
+        case SIG_MSG_TYPES.NEW_PRODUCER:
+            log(`Server notified of new producer: ${message.producerId} for user ${message.userId} of kind ${message.kind}`, 'info');
+            this._handleNewRemoteProducer(message);
+            break;
+        case SIG_MSG_TYPES.PRODUCER_CLOSED:
+            log(`Server notified producer closed: ${message.producerId}`, 'info');
+            this._handleRemoteProducerClosed(message.producerId);
+            break;
+        default:
+            log(`Received unhandled signaling message type: ${message.type}`, 'warn');
         }
     }
 

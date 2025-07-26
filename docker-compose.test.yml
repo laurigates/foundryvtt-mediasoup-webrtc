@@ -18,7 +18,7 @@ services:
       - MEDIASOUP_RTC_MAX_PORT=10010
       - MEDIASOUP_NUM_WORKERS=1
     healthcheck:
-      test: ["CMD", "curl", "-f", "ws://localhost:4443"]
+      test: ["CMD", "curl", "-f", "http://localhost:4443/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,7 +40,7 @@ services:
 
   # Playwright test runner
   playwright-tests:
-    image: mcr.microsoft.com/playwright:v1.40.0-focal
+    image: mcr.microsoft.com/playwright:v1.54.1-focal
     working_dir: /app
     volumes:
       - .:/app

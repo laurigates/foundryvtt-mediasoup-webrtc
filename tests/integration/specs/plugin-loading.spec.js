@@ -7,27 +7,139 @@ import { test, expect } from '@playwright/test';
  * in a mock FoundryVTT environment.
  */
 
+/**
+ * Helper function for CI-aware waiting with improved polling and timeout handling
+ * Implements exponential backoff and enhanced retry logic for CI environments
+ */
+async function waitForClientWithRetry(page, options = {}) {
+  const isCI = !!process.env.CI;
+  const timeout = options.timeout || (isCI ? 120000 : 30000); // 2 minutes in CI, 30s locally
+  const maxRetries = isCI ? 5 : 3;
+  const basePolling = isCI ? 3000 : 500; // Slower base polling in CI
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Exponential backoff: increase polling interval with each retry
+      const currentPolling = basePolling * Math.pow(1.5, attempt);
+      const attemptTimeout = Math.min(timeout / maxRetries * (attempt + 2), timeout);
+      
+      console.log(`[Retry ${attempt + 1}/${maxRetries}] Waiting for client with timeout: ${attemptTimeout}ms, polling: ${currentPolling}ms`);
+      
+      const result = await page.waitForFunction(
+        () => {
+          const hasClient = !!window.MediaSoupVTT_Client;
+          const isCorrectType = hasClient && window.MediaSoupVTT_Client.constructor.name === 'MediaSoupVTTClient';
+          const hasRequiredMethods = hasClient && typeof window.MediaSoupVTT_Client.updateServerUrl === 'function';
+          
+          // Enhanced debugging for CI (check CI via URL param since process is not available in browser)
+          if (window.location.search.includes('ci=true') || window.location.search.includes('ci-debug')) {
+            if (!hasClient && window.testSandbox) {
+              const debugInfo = {
+                hasClient,
+                isCorrectType,
+                hasRequiredMethods,
+                hasMediasoup: !!window.mediasoupClient,
+                hooksCalled: window.testHookCalls ? window.testHookCalls.length : 0,
+                isInitialized: window.isInitialized,
+                timestamp: Date.now()
+              };
+              console.log(`[CI-Debug] Client check attempt ${attempt + 1}:`, debugInfo);
+            }
+          }
+          
+          return hasClient && isCorrectType && hasRequiredMethods;
+        },
+        { 
+          timeout: attemptTimeout,
+          polling: currentPolling
+        }
+      );
+      
+      console.log(`[Retry ${attempt + 1}/${maxRetries}] Success! Client found.`);
+      return result;
+      
+    } catch (error) {
+      // Check if browser/page is still alive before retrying
+      const isBrowserClosed = error.message.includes('Target page, context or browser has been closed') ||
+                              error.message.includes('browser has been closed') ||
+                              page.isClosed();
+      
+      if (isBrowserClosed) {
+        console.error(`[Browser Closed] Browser crashed during attempt ${attempt + 1}. Error: ${error.message}`);
+        throw new Error(`Browser crashed during waitForClientWithRetry. This suggests browser instability in CI.`);
+      }
+      
+      if (attempt === maxRetries - 1) {
+        // Final attempt failed - gather comprehensive debug info if page is still alive
+        let debugInfo = null;
+        try {
+          if (!page.isClosed()) {
+            debugInfo = await page.evaluate(() => ({
+              hasClient: !!window.MediaSoupVTT_Client,
+              clientType: window.MediaSoupVTT_Client?.constructor?.name,
+              hasMediasoup: !!window.mediasoupClient,
+              mediasoupVersion: window.mediasoupClient?.version,
+              hasGame: !!window.game,
+              gameVersion: window.game?.version,
+              hasUI: !!window.ui,
+              hasHooks: !!window.Hooks,
+              hooksCalled: window.testHookCalls || [],
+              isInitialized: window.isInitialized,
+              testLogs: window.testLogs || [],
+              testErrors: window.testErrors || [],
+              windowKeys: Object.keys(window).filter(k => k.includes('MediaSoup') || k.includes('mediasoup')),
+              documentReadyState: document.readyState,
+              timestamp: Date.now()
+            }));
+          }
+        } catch (evalError) {
+          console.warn(`[Debug Info Failed] Could not gather debug info: ${evalError.message}`);
+        }
+        
+        console.error(`[Final Retry Failed] Debug info:`, debugInfo);
+        throw new Error(`waitForClientWithRetry failed after ${maxRetries} attempts. Last error: ${error.message}`);
+      }
+      
+      console.warn(`[Retry ${attempt + 1}/${maxRetries}] Failed: ${error.message}. Retrying...`);
+      
+      // Brief pause before retry with exponential backoff - but only if page is still alive
+      if (!page.isClosed()) {
+        const retryDelay = isCI ? 2000 * Math.pow(1.3, attempt) : 1000;
+        await page.waitForTimeout(retryDelay);
+      }
+    }
+  }
+}
+
 test.describe('MediaSoup Plugin Loading', () => {
   let page;
   
   test.beforeEach(async ({ browser }) => {
     try {
+      const isCI = !!process.env.CI;
+      const setupTimeout = isCI ? 90000 : 30000; // 90s in CI, 30s locally
+      
       page = await browser.newPage();
       
-      // Set default timeout for mock environment
-      page.setDefaultTimeout(30000);
+      // Set CI-aware default timeout for mock environment
+      page.setDefaultTimeout(setupTimeout);
       
-      // Navigate to test sandbox
+      // Navigate to test sandbox with CI-aware timeout
       await page.goto('/tests/integration/setup/test-sandbox.html', { 
         waitUntil: 'domcontentloaded',
-        timeout: 30000 
+        timeout: setupTimeout 
       });
       
-      // Wait for mock environment to initialize
-      await page.waitForFunction(() => window.testSandbox && window.game, { timeout: 15000 });
+      // Wait for mock environment to initialize with CI-aware timeout
+      await page.waitForFunction(() => window.testSandbox && window.game, { 
+        timeout: setupTimeout,
+        polling: isCI ? 1000 : 500 // Slower polling in CI
+      });
       
-      // Verify mock environment is ready
-      await expect(page.locator('#test-status')).toContainText('Ready for testing', { timeout: 15000 });
+      // Verify mock environment is ready with CI-aware timeout
+      await expect(page.locator('#test-status')).toContainText('Ready for testing', { 
+        timeout: setupTimeout 
+      });
     } catch (error) {
       console.error('BeforeEach setup failed:', error);
       if (page) {
@@ -74,8 +186,12 @@ test.describe('MediaSoup Plugin Loading', () => {
     // Click initialize plugin - this should load the mock mediasoup-client
     await page.click('#btn-init-plugin');
     
-    // Wait for mock library to be exposed
-    await page.waitForFunction(() => window.mediasoupClient, { timeout: 10000 });
+    // Wait for mock library to be exposed with CI-aware timeout
+    const isCI = !!process.env.CI;
+    await page.waitForFunction(() => window.mediasoupClient, { 
+      timeout: isCI ? 30000 : 10000,
+      polling: isCI ? 1000 : 500
+    });
     
     // Wait a bit for initialization to complete
     await page.waitForTimeout(1000);
@@ -125,8 +241,12 @@ test.describe('MediaSoup Plugin Loading', () => {
     // Click the initialize plugin button
     await page.click('#btn-init-plugin');
     
-    // Wait for mediasoup-client mock to be loaded first
-    await page.waitForFunction(() => window.mediasoupClient, { timeout: 5000 });
+    // Wait for mediasoup-client mock to be loaded first with CI-aware timeout
+    const isCI = !!process.env.CI;
+    await page.waitForFunction(() => window.mediasoupClient, { 
+      timeout: isCI ? 20000 : 5000,
+      polling: isCI ? 1000 : 500
+    });
     
     // Add debugging information about what's happening
     const debugInfo = await page.evaluate(() => {
@@ -143,40 +263,29 @@ test.describe('MediaSoup Plugin Loading', () => {
     
     console.log('Debug info before waiting for client:', debugInfo);
     
-    // Try to wait for client creation with detailed debugging
+    // Use the improved CI-aware waiting function
     try {
-      await page.waitForFunction(
-        () => {
-          // Add detailed logging in the browser
-          if (!window.debugCounter) window.debugCounter = 0;
-          window.debugCounter++;
-          
-          const hasClient = !!window.MediaSoupVTT_Client;
-          const isCorrectType = hasClient && window.MediaSoupVTT_Client.constructor.name === 'MediaSoupVTTClient';
-          const hasRequiredMethods = hasClient && typeof window.MediaSoupVTT_Client.updateServerUrl === 'function';
-          
-          if (window.debugCounter % 10 === 0) {
-            console.log(`Debug ${window.debugCounter}: hasClient=${hasClient}, isCorrectType=${isCorrectType}, hasRequiredMethods=${hasRequiredMethods}`);
-            if (hasClient) {
-              console.log('Client found!', window.MediaSoupVTT_Client);
-            }
-          }
-          
-          return hasClient && isCorrectType && hasRequiredMethods;
-        },
-        { timeout: 30000 }
-      );
+      await waitForClientWithRetry(page);
     } catch (timeoutError) {
-      // If timeout, gather detailed debug information
-      const finalDebugInfo = await page.evaluate(() => ({
-        logs: window.testLogs || [],
-        errors: window.testErrors || [],
-        hasClient: !!window.MediaSoupVTT_Client,
-        clientType: window.MediaSoupVTT_Client?.constructor?.name,
-        isInitialized: window.isInitialized,
-        allGlobals: Object.keys(window).filter(k => k.startsWith('MediaSoup') || k.includes('mediasoup')),
-        hookCalls: window.testHookCalls || []
-      }));
+      // If timeout, gather detailed debug information - but only if browser is still alive
+      let finalDebugInfo = null;
+      try {
+        if (!page.isClosed()) {
+          finalDebugInfo = await page.evaluate(() => ({
+            logs: window.testLogs || [],
+            errors: window.testErrors || [],
+            hasClient: !!window.MediaSoupVTT_Client,
+            clientType: window.MediaSoupVTT_Client?.constructor?.name,
+            isInitialized: window.isInitialized,
+            allGlobals: Object.keys(window).filter(k => k.startsWith('MediaSoup') || k.includes('mediasoup')),
+            hookCalls: window.testHookCalls || []
+          }));
+        } else {
+          finalDebugInfo = { error: "Browser/page was closed, cannot gather debug info" };
+        }
+      } catch (evalError) {
+        finalDebugInfo = { error: `Failed to gather debug info: ${evalError.message}` };
+      }
       
       console.log('=== TIMEOUT DEBUG INFO ===');
       console.log('Console logs:', logs.slice(-20)); // Last 20 logs
@@ -190,8 +299,9 @@ test.describe('MediaSoup Plugin Loading', () => {
     // Wait a bit more for status update
     await page.waitForTimeout(500);
     
-    // Check plugin status
-    await expect(page.locator('#test-status')).toContainText('Plugin initialized', { timeout: 10000 });
+    // Check plugin status with CI-aware timeout
+    const statusTimeout = process.env.CI ? 30000 : 10000;
+    await expect(page.locator('#test-status')).toContainText('Plugin initialized', { timeout: statusTimeout });
     
     // Verify client instance is created with more detailed checks
     const clientInfo = await page.evaluate(() => ({
@@ -215,7 +325,7 @@ test.describe('MediaSoup Plugin Loading', () => {
   test('should register settings correctly', async () => {
     // Initialize plugin
     await page.click('#btn-init-plugin');
-    await page.waitForFunction(() => window.MediaSoupVTT_Client);
+    await waitForClientWithRetry(page);
     
     // Get registered settings
     const settings = await page.evaluate(() => {
@@ -249,7 +359,7 @@ test.describe('MediaSoup Plugin Loading', () => {
   test('should register settings menu correctly', async () => {
     // Initialize plugin
     await page.click('#btn-init-plugin');
-    await page.waitForFunction(() => window.MediaSoupVTT_Client);
+    await waitForClientWithRetry(page);
     
     // Get registered menus
     const menus = await page.evaluate(() => {
@@ -278,7 +388,7 @@ test.describe('MediaSoup Plugin Loading', () => {
     
     // Initialize plugin
     await page.click('#btn-init-plugin');
-    await page.waitForFunction(() => window.MediaSoupVTT_Client);
+    await waitForClientWithRetry(page);
     
     // Wait for lifecycle to complete
     await page.waitForTimeout(1000);
@@ -297,7 +407,7 @@ test.describe('MediaSoup Plugin Loading', () => {
     
     // Initialize plugin
     await page.click('#btn-init-plugin');
-    await page.waitForFunction(() => window.MediaSoupVTT_Client);
+    await waitForClientWithRetry(page);
     
     // Wait for notifications
     await page.waitForTimeout(2000);
@@ -326,7 +436,7 @@ test.describe('MediaSoup Plugin Loading', () => {
     
     // Initialize plugin
     await page.click('#btn-init-plugin');
-    await page.waitForFunction(() => window.MediaSoupVTT_Client);
+    await waitForClientWithRetry(page);
     
     // Wait for logs
     await page.waitForTimeout(1000);
@@ -346,8 +456,9 @@ test.describe('MediaSoup Plugin Loading', () => {
     // Initialize plugin
     await page.click('#btn-init-plugin');
     
-    // Should show error status due to loading failure
-    await expect(page.locator('#test-status')).toContainText('Plugin load failed', { timeout: 10000 });
+    // Should show error status due to loading failure with CI-aware timeout
+    const errorTimeout = process.env.CI ? 30000 : 10000;
+    await expect(page.locator('#test-status')).toContainText('Plugin load failed', { timeout: errorTimeout });
     
     // Should have logged the error
     const logEntries = await page.locator('.test-log .log-entry.error').count();
