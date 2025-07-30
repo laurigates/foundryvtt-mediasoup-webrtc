@@ -11,6 +11,18 @@ let mediasoupServer = null;
 
 export default async function globalSetup() {
   console.log('[GlobalSetup] Starting test environment setup...');
+  const isCI = !!process.env.CI;
+  
+  if (isCI) {
+    console.log('[GlobalSetup] Running in CI environment - applying stability measures');
+    
+    // Set additional environment variables for CI stability
+    process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.HOME + '/.cache/ms-playwright';
+    process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --max-old-space-size=4096';
+    
+    // Add CI-specific timeout for operations
+    process.env.PLAYWRIGHT_TEST_TIMEOUT = '180000'; // 3 minutes
+  }
   
   // Create results directory
   const resultsDir = 'tests/results';
@@ -18,14 +30,51 @@ export default async function globalSetup() {
     mkdirSync(resultsDir, { recursive: true });
   }
   
-  // Build the plugin first
+  // Build the plugin first with CI-aware error handling
   console.log('[GlobalSetup] Building MediaSoup plugin...');
   try {
-    execSync('npm run build', { stdio: 'inherit' });
+    const buildTimeout = isCI ? 120000 : 60000; // 2 minutes in CI, 1 minute locally
+    const buildCommand = 'npm run build';
+    
+    if (isCI) {
+      // In CI, use timeout and better error handling
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      await Promise.race([
+        execAsync(buildCommand, { 
+          maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+          env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' }
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Build timeout')), buildTimeout)
+        )
+      ]);
+    } else {
+      execSync(buildCommand, { stdio: 'inherit' });
+    }
+    
     console.log('[GlobalSetup] Plugin built successfully');
   } catch (error) {
     console.error('[GlobalSetup] Failed to build plugin:', error);
-    throw error;
+    
+    // In CI, try a recovery build
+    if (isCI) {
+      console.log('[GlobalSetup] Attempting recovery build...');
+      try {
+        execSync('npm run clean && npm run build', { 
+          stdio: 'inherit',
+          timeout: 180000 // 3 minutes timeout
+        });
+        console.log('[GlobalSetup] Recovery build successful');
+      } catch (recoveryError) {
+        console.error('[GlobalSetup] Recovery build also failed:', recoveryError);
+        throw error;
+      }
+    } else {
+      throw error;
+    }
   }
   
   // Create test fixtures if they don't exist
@@ -34,6 +83,12 @@ export default async function globalSetup() {
   // Skip MediaSoup server startup for basic plugin tests
   // Server will be started only for tests that actually need it
   console.log('[GlobalSetup] Skipping MediaSoup server startup for lightweight tests');
+  
+  // In CI, add a small delay to let system settle
+  if (isCI) {
+    console.log('[GlobalSetup] Allowing system to settle...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
   
   console.log('[GlobalSetup] Test environment ready');
 }

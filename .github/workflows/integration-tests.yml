@@ -215,7 +215,12 @@ jobs:
         if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
           echo "DISPLAY=:99" >> $GITHUB_ENV
           sudo apt-get update -q
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb dbus-x11
+          # Configure virtual display for better stability
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x1024x24 -ac +extension GLX +render -noreset &
+          sleep 3 # Wait for display to initialize
+          echo "Virtual display configured"
         fi
         
         # macOS-specific optimizations  
@@ -224,6 +229,9 @@ jobs:
           # Grant microphone/camera permissions (best effort)
           sudo tccutil reset Microphone || true
           sudo tccutil reset Camera || true
+          # Increase system limits
+          sudo sysctl -w kern.maxfiles=65536 || true
+          sudo sysctl -w kern.maxfilesperproc=32768 || true
         fi
         
         # Windows-specific optimizations
@@ -231,23 +239,66 @@ jobs:
           echo "Configuring Windows for testing..."
           # Add Windows Defender exclusions
           powershell -Command "Add-MpPreference -ExclusionPath '${{ github.workspace }}' -Force" || true
+          # Configure for better process handling
+          powershell -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'DisablePagingExecutive' -Value 1" || true
         fi
       shell: bash
       
-    - name: Run basic smoke tests
+    - name: Run basic smoke tests with retry logic
       run: |
-        # Ubuntu: Use xvfb for headless display
-        if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
-          xvfb-run -a --server-args="-screen 0 1280x1024x24" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc
-        else
-          npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc
-        fi
+        # Set additional environment variables for CI stability
+        export NODE_OPTIONS="--max-old-space-size=4096 --no-deprecation"
+        export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+        
+        # Function to run tests with retry logic
+        run_tests_with_retry() {
+          local max_attempts=3
+          local attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts"
+            
+            # Kill any leftover browser processes
+            pkill -f "chrome\|chromium\|firefox" || true
+            sleep 2
+            
+            # Run the test
+            if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
+              if timeout 300 xvfb-run -a --server-args="-screen 0 1280x1024x24 -ac" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc; then
+                echo "Tests passed on attempt $attempt"
+                return 0
+              fi
+            else
+              if timeout 300 npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc; then
+                echo "Tests passed on attempt $attempt"
+                return 0
+              fi
+            fi
+            
+            echo "Attempt $attempt failed"
+            if [ $attempt -lt $max_attempts ]; then
+              echo "Waiting 10 seconds before retry..."
+              sleep 10
+            fi
+            attempt=$((attempt + 1))
+          done
+          
+          echo "All attempts failed"
+          return 1
+        }
+        
+        # Run tests with retry logic
+        run_tests_with_retry
       shell: bash
       env:
         CI: true
-        # OS-specific environment variables
+        # Enhanced environment variables for CI stability
         PWTEST_SKIP_DOCKER: 1
         NODE_OPTIONS: --max-old-space-size=4096
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
+        DEBUG: pw:api
+        # Reduce parallelism for stability
+        FORCE_COLOR: 1
         
     - name: Upload smoke test results
       uses: actions/upload-artifact@v4

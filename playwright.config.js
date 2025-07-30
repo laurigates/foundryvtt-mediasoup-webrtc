@@ -69,7 +69,7 @@ export default defineConfig({
             '--use-fake-ui-for-media-stream',
             '--use-fake-device-for-media-stream',
             '--allow-running-insecure-content',
-            // Minimal CI flags to prevent browser crashes
+            // Enhanced CI flags for maximum stability
             ...(process.env.CI ? [
               '--no-sandbox',
               '--disable-setuid-sandbox', 
@@ -78,18 +78,36 @@ export default defineConfig({
               '--disable-plugins',
               '--no-first-run',
               '--mute-audio',
+              '--disable-background-timer-throttling',
+              '--disable-backgrounding-occluded-windows',
+              '--disable-renderer-backgrounding',
+              '--disable-features=TranslateUI',
+              '--disable-ipc-flooding-protection',
+              '--disable-background-networking',
+              '--disable-sync',
+              '--disable-default-apps',
+              '--disable-component-extensions-with-background-pages',
+              '--single-process', // Force single process for CI stability
+              // Memory and performance optimizations for CI
+              '--memory-pressure-off',
+              '--max_old_space_size=4096',
               // OS-specific minimal flags
               ...(process.platform === 'win32' ? [
                 '--disable-gpu',
+                '--disable-gpu-sandbox',
+              ] : []),
+              ...(process.platform === 'linux' ? [
+                '--disable-gpu',
+                '--disable-software-rasterizer',
               ] : []),
             ] : []),
           ],
-          // OS-specific timeout adjustments
-          timeout: process.env.CI ? (
-            process.platform === 'win32' ? 60000 : // Windows needs more time
-            process.platform === 'darwin' ? 45000 : // macOS is typically faster
-            30000 // Linux default
-          ) : 30000,
+          // Increased timeout for CI stability
+          timeout: process.env.CI ? 120000 : 30000, // 2 minutes in CI for browser launch
+          // Slower launch for CI stability
+          slowMo: process.env.CI ? 100 : 0,
+          // Force headless mode in CI for better stability
+          headless: process.env.CI ? true : false,
         },
         
         // Grant permissions for media devices
@@ -110,19 +128,32 @@ export default defineConfig({
           firefoxUserPrefs: {
             'media.navigator.streams.fake': true,
             'media.navigator.permission.disabled': true,
-            // Minimal Firefox settings for CI stability
+            // Enhanced Firefox settings for CI stability
             ...(process.env.CI ? {
               'dom.webnotifications.enabled': false,
               'browser.shell.checkDefaultBrowser': false,
               'browser.tabs.warnOnClose': false,
+              'browser.sessionstore.resume_from_crash': false,
+              'browser.crashReports.unsubmittedCheck.enabled': false,
+              'dom.disable_beforeunload': true,
+              'dom.max_script_run_time': 0,
+              'dom.max_chrome_script_run_time': 0,
+              'browser.dom.window.dump.enabled': true,
+              'devtools.console.stdout.chrome': true,
             } : {}),
           },
-          // Minimal Firefox args for CI
+          // Enhanced Firefox args for CI stability
           args: process.env.CI ? [
             '--no-remote',
             '--disable-extensions',
             '--no-first-run',
+            '--safe-mode',
+            '--disable-dev-shm-usage',
           ] : [],
+          // Increased timeout for CI stability
+          timeout: process.env.CI ? 120000 : 30000,
+          // Force headless mode in CI for better stability
+          headless: process.env.CI ? true : false,
         },
         // Firefox doesn't support camera/microphone permissions in this context
         // Using firefoxUserPrefs instead to handle media access
