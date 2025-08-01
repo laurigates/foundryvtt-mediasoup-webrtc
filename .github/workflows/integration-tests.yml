@@ -207,7 +207,10 @@ jobs:
         test -f dist/mediasoup-vtt-test.js
         
     - name: Install Playwright (Chromium only for smoke test)
-      run: npx playwright install chromium
+      run: |
+        npx playwright install --with-deps chromium
+        # Verify browser installation
+        npx playwright test --list tests/integration/specs/plugin-loading.spec.js || true
       
     - name: Configure OS-specific optimizations
       run: |
@@ -241,6 +244,8 @@ jobs:
           powershell -Command "Add-MpPreference -ExclusionPath '${{ github.workspace }}' -Force" || true
           # Configure for better process handling
           powershell -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'DisablePagingExecutive' -Value 1" || true
+          # Ensure proper browser path on Windows
+          export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
         fi
       shell: bash
       
@@ -249,6 +254,11 @@ jobs:
         # Set additional environment variables for CI stability
         export NODE_OPTIONS="--max-old-space-size=4096 --no-deprecation"
         export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+        
+        # Check browser installation before starting tests
+        echo "Checking Playwright browser installation..."
+        ls -la $PLAYWRIGHT_BROWSERS_PATH/ || true
+        npx playwright test --list tests/integration/specs/plugin-loading.spec.js || echo "Warning: Could not list tests"
         
         # Function to run tests with retry logic
         run_tests_with_retry() {
@@ -264,12 +274,12 @@ jobs:
             
             # Run the test
             if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
-              if timeout 300 xvfb-run -a --server-args="-screen 0 1280x1024x24 -ac" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc; then
+              if timeout 300 xvfb-run -a --server-args="-screen 0 1280x1024x24 -ac" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc --timeout=180000; then
                 echo "Tests passed on attempt $attempt"
                 return 0
               fi
             else
-              if timeout 300 npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc; then
+              if timeout 300 npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc --timeout=180000; then
                 echo "Tests passed on attempt $attempt"
                 return 0
               fi

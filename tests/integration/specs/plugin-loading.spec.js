@@ -150,13 +150,23 @@ test.describe('MediaSoup Plugin Loading', () => {
   });
   
   test.afterEach(async () => {
-    if (page && !page.isClosed()) {
-      try {
+    try {
+      if (page && !page.isClosed()) {
+        // Clear any timeouts or intervals before closing
+        await page.evaluate(() => {
+          // Clear all intervals and timeouts
+          for (let i = 1; i < 99999; i++) {
+            window.clearInterval(i);
+            window.clearTimeout(i);
+          }
+        }).catch(() => {});
+        
         await page.close();
-      } catch (error) {
-        console.warn('Error closing page:', error.message);
       }
+    } catch (error) {
+      console.warn('Error in test cleanup:', error.message);
     }
+    page = null;
   });
   
   test('should load mock FoundryVTT environment correctly', async () => {
@@ -361,18 +371,30 @@ test.describe('MediaSoup Plugin Loading', () => {
     await page.click('#btn-init-plugin');
     await waitForClientWithRetry(page);
     
-    // Get registered menus
-    const menus = await page.evaluate(() => {
-      return window.game.settings.getAllMenus().filter(menu => 
+    // Wait additional time for settings registration to complete in CI
+    const isCI = !!process.env.CI;
+    if (isCI) {
+      await page.waitForTimeout(2000);
+    }
+    
+    // Wait for settings menus to be registered with retry logic
+    const menus = await page.waitForFunction(() => {
+      const allMenus = window.game.settings.getAllMenus().filter(menu => 
         menu.key.startsWith('mediasoup-vtt.')
       );
+      return allMenus.length > 0 ? allMenus : null;
+    }, { 
+      timeout: isCI ? 30000 : 10000,
+      polling: isCI ? 1000 : 500
     });
     
+    const menuArray = await menus.evaluate(menus => menus);
+    
     // Check that config dialog menu is registered
-    expect(menus).toHaveLength(1);
-    expect(menus[0].key).toBe('mediasoup-vtt.configDialog');
-    expect(menus[0].name).toBe('MediaSoup Server Configuration');
-    expect(menus[0].type).toBeDefined();
+    expect(menuArray).toHaveLength(1);
+    expect(menuArray[0].key).toBe('mediasoup-vtt.configDialog');
+    expect(menuArray[0].name).toBe('MediaSoup Server Configuration');
+    expect(menuArray[0].type).toBeDefined();
   });
   
   test('should handle lifecycle hooks correctly', async () => {

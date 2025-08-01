@@ -16,7 +16,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   
   /* Retry on CI only */
-  retries: process.env.CI ? 1 : 0,
+  retries: process.env.CI ? 2 : 0,
   
   /* Use single worker to prevent browser instability */
   workers: 1,
@@ -87,7 +87,9 @@ export default defineConfig({
               '--disable-sync',
               '--disable-default-apps',
               '--disable-component-extensions-with-background-pages',
-              '--single-process', // Force single process for CI stability
+              '--disable-hang-monitor',
+              '--disable-prompt-on-repost',
+              '--disable-client-side-phishing-detection',
               // Memory and performance optimizations for CI
               '--memory-pressure-off',
               '--max_old_space_size=4096',
