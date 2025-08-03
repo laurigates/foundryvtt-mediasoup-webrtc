@@ -206,11 +206,12 @@ jobs:
         test -f dist/module.json
         test -f dist/mediasoup-vtt-test.js
         
-    - name: Install Playwright (Chromium only for smoke test)
+    - name: Install Playwright browsers and dependencies
       run: |
-        npx playwright install --with-deps chromium
-        # Verify browser installation
-        npx playwright test --list tests/integration/specs/plugin-loading.spec.js || true
+        # Install all browsers to avoid version mismatch issues
+        npx playwright install
+        # Verify installation worked
+        npx playwright test --list tests/integration/specs/plugin-loading.spec.js
       
     - name: Configure OS-specific optimizations
       run: |

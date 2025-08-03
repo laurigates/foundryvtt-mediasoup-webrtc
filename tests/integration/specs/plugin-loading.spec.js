@@ -367,25 +367,29 @@ test.describe('MediaSoup Plugin Loading', () => {
   });
   
   test('should register settings menu correctly', async () => {
-    // Initialize plugin
+    // Initialize plugin 
     await page.click('#btn-init-plugin');
     await waitForClientWithRetry(page);
     
-    // Wait additional time for settings registration to complete in CI
-    const isCI = !!process.env.CI;
-    if (isCI) {
-      await page.waitForTimeout(2000);
-    }
+    // Wait for FoundryVTT 'ready' hook to complete, which is when menus are registered
+    await page.waitForFunction(() => {
+      // Check if ready hook has been triggered and menus are registered
+      return window.game && window.game.ready === true;
+    }, { 
+      timeout: 30000,
+      polling: 500
+    });
     
-    // Wait for settings menus to be registered with retry logic
+    // Now wait for the actual menu registration which happens in the ready hook
     const menus = await page.waitForFunction(() => {
+      if (!window.game || !window.game.settings) return null;
       const allMenus = window.game.settings.getAllMenus().filter(menu => 
         menu.key.startsWith('mediasoup-vtt.')
       );
       return allMenus.length > 0 ? allMenus : null;
     }, { 
-      timeout: isCI ? 30000 : 10000,
-      polling: isCI ? 1000 : 500
+      timeout: 10000,
+      polling: 500
     });
     
     const menuArray = await menus.evaluate(menus => menus);

@@ -108,8 +108,8 @@ export default defineConfig({
           timeout: process.env.CI ? 120000 : 30000, // 2 minutes in CI for browser launch
           // Slower launch for CI stability
           slowMo: process.env.CI ? 100 : 0,
-          // Force headless mode in CI for better stability
-          headless: process.env.CI ? true : false,
+          // Use headless mode in CI but allow normal browser on Windows for compatibility
+          headless: process.env.CI && process.platform !== 'win32',
         },
         
         // Grant permissions for media devices
@@ -154,8 +154,8 @@ export default defineConfig({
           ] : [],
           // Increased timeout for CI stability
           timeout: process.env.CI ? 120000 : 30000,
-          // Force headless mode in CI for better stability
-          headless: process.env.CI ? true : false,
+          // Use headless mode in CI but allow normal browser on Windows for compatibility  
+          headless: process.env.CI && process.platform !== 'win32',
         },
         // Firefox doesn't support camera/microphone permissions in this context
         // Using firefoxUserPrefs instead to handle media access
