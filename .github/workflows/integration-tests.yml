@@ -71,15 +71,8 @@ jobs:
     - name: Install Playwright browsers
       run: npx playwright install --with-deps ${{ matrix.browser }}
       
-    - name: Start test servers
+    - name: Start MediaSoup server
       run: |
-        # Start HTTP server for test files
-        python3 -m http.server 3000 &
-        echo $! > http_server.pid
-        
-        # Wait for HTTP server
-        timeout 30 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 1; done'
-        
         # Start MediaSoup server if available
         if [ -f server/target/release/mediasoup-server ]; then
           cd server
@@ -107,15 +100,9 @@ jobs:
           test-results/
         retention-days: 30
         
-    - name: Stop servers
+    - name: Stop MediaSoup server
       if: always()
       run: |
-        # Stop HTTP server
-        if [ -f http_server.pid ]; then
-          kill $(cat http_server.pid) || true
-          rm http_server.pid
-        fi
-        
         # Stop MediaSoup server
         if [ -f mediasoup_server.pid ]; then
           kill $(cat mediasoup_server.pid) || true
@@ -136,8 +123,8 @@ jobs:
       
     - name: Build and test with Docker Compose
       run: |
-        docker-compose -f docker-compose.test.yml build
-        docker-compose -f docker-compose.test.yml up --abort-on-container-exit --exit-code-from playwright-tests
+        docker compose -f docker-compose.test.yml build
+        docker compose -f docker-compose.test.yml up --abort-on-container-exit --exit-code-from playwright-tests
       env:
         CI: true
         
@@ -148,7 +135,7 @@ jobs:
         mkdir -p test-results-docker
         
         # Copy results from container if it exists
-        docker-compose -f docker-compose.test.yml ps -q playwright-tests | xargs -I {} docker cp {}:/app/tests/results ./test-results-docker/ || true
+        docker compose -f docker-compose.test.yml ps -q playwright-tests | xargs -I {} docker cp {}:/app/tests/results ./test-results-docker/ || true
         
     - name: Upload Docker test results
       uses: actions/upload-artifact@v4
@@ -160,7 +147,7 @@ jobs:
         
     - name: Cleanup
       if: always()
-      run: docker-compose -f docker-compose.test.yml down -v
+      run: docker compose -f docker-compose.test.yml down -v
 
   # Smoke tests for different environments
   smoke-tests:
@@ -207,109 +194,20 @@ jobs:
         test -f dist/mediasoup-vtt-test.js
         
     - name: Install Playwright browsers and dependencies
-      run: |
-        # Install all browsers to avoid version mismatch issues
-        npx playwright install
-        # Verify installation worked
-        npx playwright test --list tests/integration/specs/plugin-loading.spec.js
+      run: npx playwright install --with-deps chromium
       
-    - name: Configure OS-specific optimizations
+    - name: Configure OS-specific settings
+      if: runner.os == 'Windows'
       run: |
-        # Ubuntu-specific optimizations
-        if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
-          echo "DISPLAY=:99" >> $GITHUB_ENV
-          sudo apt-get update -q
-          sudo apt-get install -y xvfb dbus-x11
-          # Configure virtual display for better stability
-          export DISPLAY=:99
-          Xvfb :99 -screen 0 1280x1024x24 -ac +extension GLX +render -noreset &
-          sleep 3 # Wait for display to initialize
-          echo "Virtual display configured"
-        fi
-        
-        # macOS-specific optimizations  
-        if [[ "${{ matrix.os }}" == "macos"* ]]; then
-          echo "Configuring macOS for testing..."
-          # Grant microphone/camera permissions (best effort)
-          sudo tccutil reset Microphone || true
-          sudo tccutil reset Camera || true
-          # Increase system limits
-          sudo sysctl -w kern.maxfiles=65536 || true
-          sudo sysctl -w kern.maxfilesperproc=32768 || true
-        fi
-        
-        # Windows-specific optimizations
-        if [[ "${{ matrix.os }}" == "windows"* ]]; then
-          echo "Configuring Windows for testing..."
-          # Add Windows Defender exclusions
-          powershell -Command "Add-MpPreference -ExclusionPath '${{ github.workspace }}' -Force" || true
-          # Configure for better process handling
-          powershell -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'DisablePagingExecutive' -Value 1" || true
-          # Ensure proper browser path on Windows
-          export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-        fi
+        # Windows-specific: Add Windows Defender exclusion for better performance
+        powershell -Command "Add-MpPreference -ExclusionPath '${{ github.workspace }}' -Force" || true
       shell: bash
       
-    - name: Run basic smoke tests with retry logic
-      run: |
-        # Set additional environment variables for CI stability
-        export NODE_OPTIONS="--max-old-space-size=4096 --no-deprecation"
-        export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-        
-        # Check browser installation before starting tests
-        echo "Checking Playwright browser installation..."
-        ls -la $PLAYWRIGHT_BROWSERS_PATH/ || true
-        npx playwright test --list tests/integration/specs/plugin-loading.spec.js || echo "Warning: Could not list tests"
-        
-        # Function to run tests with retry logic
-        run_tests_with_retry() {
-          local max_attempts=3
-          local attempt=1
-          
-          while [ $attempt -le $max_attempts ]; do
-            echo "Attempt $attempt of $max_attempts"
-            
-            # Kill any leftover browser processes
-            pkill -f "chrome\|chromium\|firefox" || true
-            sleep 2
-            
-            # Run the test
-            if [[ "${{ matrix.os }}" == "ubuntu"* ]]; then
-              if timeout 300 xvfb-run -a --server-args="-screen 0 1280x1024x24 -ac" npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc --timeout=180000; then
-                echo "Tests passed on attempt $attempt"
-                return 0
-              fi
-            else
-              if timeout 300 npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc --timeout=180000; then
-                echo "Tests passed on attempt $attempt"
-                return 0
-              fi
-            fi
-            
-            echo "Attempt $attempt failed"
-            if [ $attempt -lt $max_attempts ]; then
-              echo "Waiting 10 seconds before retry..."
-              sleep 10
-            fi
-            attempt=$((attempt + 1))
-          done
-          
-          echo "All attempts failed"
-          return 1
-        }
-        
-        # Run tests with retry logic
-        run_tests_with_retry
-      shell: bash
+    - name: Run smoke tests
+      run: npx playwright test tests/integration/specs/plugin-loading.spec.js --project=chromium-webrtc --timeout=180000
       env:
         CI: true
-        # Enhanced environment variables for CI stability
-        PWTEST_SKIP_DOCKER: 1
         NODE_OPTIONS: --max-old-space-size=4096
-        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
-        DEBUG: pw:api
-        # Reduce parallelism for stability
-        FORCE_COLOR: 1
         
     - name: Upload smoke test results
       uses: actions/upload-artifact@v4
