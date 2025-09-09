@@ -17,7 +17,13 @@ export default async function globalSetup() {
     console.log('[GlobalSetup] Running in CI environment - applying stability measures');
     
     // Set additional environment variables for CI stability
-    process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.HOME + '/.cache/ms-playwright';
+    // Only set PLAYWRIGHT_BROWSERS_PATH if it's not already explicitly set (e.g., to "")
+    if (process.env.PLAYWRIGHT_BROWSERS_PATH === undefined) {
+      // Use platform-appropriate default cache paths, but prefer letting Playwright handle it
+      console.log('[GlobalSetup] Using default Playwright browser cache location');
+      // Don't set PLAYWRIGHT_BROWSERS_PATH - let Playwright use its defaults
+    }
+    
     process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --max-old-space-size=4096';
     
     // Add CI-specific timeout for operations

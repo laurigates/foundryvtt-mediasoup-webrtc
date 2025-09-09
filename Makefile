@@ -26,6 +26,8 @@ help:
 	@echo "  test-ci     - Run tests in CI mode (matches CI environment)"
 	@echo "  test-chromium - Run tests in Chromium only"
 	@echo "  test-firefox - Run tests in Firefox only"
+	@echo "  test-docker - Run Docker integration tests"
+	@echo "  test-docker-full - Run full Docker test suite with Playwright"
 	@echo "  coverage    - Run tests with coverage report"
 	@echo ""
 	@echo "Code Quality & QA:"
@@ -101,6 +103,20 @@ test-chromium:
 
 test-firefox:
 	npm test -- --project=firefox-webrtc
+
+# Run Docker integration tests
+test-docker:
+	@echo "Running Docker integration tests..."
+	@chmod +x test-docker.sh
+	@./test-docker.sh
+
+# Run full Docker test suite with Playwright
+test-docker-full:
+	@echo "Running full Docker test suite..."
+	docker compose -f docker-compose.test.yml down -v
+	docker compose -f docker-compose.test.yml build
+	docker compose -f docker-compose.test.yml run --rm playwright-tests
+	docker compose -f docker-compose.test.yml down -v
 
 # Run tests with coverage (if configured)
 coverage:

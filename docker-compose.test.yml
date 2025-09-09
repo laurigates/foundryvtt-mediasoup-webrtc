@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MediaSoup server for integration testing
   mediasoup-server:
@@ -11,14 +9,13 @@ services:
       - "10000-10010:10000-10010/udp"
     environment:
       - RUST_LOG=info
-      - MEDIASOUP_LISTEN_IP=0.0.0.0
-      - MEDIASOUP_LISTEN_PORT=4443
+      - MEDIASOUP_LISTEN_ADDR=0.0.0.0:4443
       - MEDIASOUP_ANNOUNCED_IP=127.0.0.1
       - MEDIASOUP_RTC_MIN_PORT=10000
       - MEDIASOUP_RTC_MAX_PORT=10010
       - MEDIASOUP_NUM_WORKERS=1
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4443/health"]
+      test: ["CMD", "/usr/local/bin/health-check.sh"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,7 +37,7 @@ services:
 
   # Playwright test runner
   playwright-tests:
-    image: mcr.microsoft.com/playwright:v1.54.1-focal
+    image: mcr.microsoft.com/playwright:v1.46.1-jammy
     working_dir: /app
     volumes:
       - .:/app
@@ -51,7 +48,7 @@ services:
     command: |
       sh -c "
         npm ci &&
-        npx playwright install --with-deps &&
+        npx playwright install --with-deps chromium firefox &&
         npm run test:integration
       "
     depends_on:

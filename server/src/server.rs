@@ -92,7 +92,7 @@ impl MediaSoupServer {
                         }
                     };
                     
-                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                    if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
                         error!("Failed to send message: {}", e);
                         break;
                     }
