@@ -23,7 +23,13 @@ test.describe('MediaSoup Settings Configuration', () => {
   });
   
   test.afterEach(async () => {
-    await page.close();
+    // Firefox has issues with closing pages in certain contexts
+    try {
+      await page.close();
+    } catch (error) {
+      // Log but don't fail on close errors
+      console.warn('Warning: Page close failed during cleanup:', error.message);
+    }
   });
   
   test('should open settings modal from button', async () => {
