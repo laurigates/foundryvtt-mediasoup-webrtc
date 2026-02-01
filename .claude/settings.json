@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json.schemastore.org/claude-code-settings.json",
+    "permissions": {
+        "allow": [
+            "Skill",
+            "mcp__serena__*"
+        ]
+    },
+    "plugins": {
+        "enabled": [
+            "git-plugin@claude-plugins",
+            "testing-plugin@claude-plugins",
+            "code-quality-plugin@claude-plugins",
+            "project-plugin@claude-plugins",
+            "typescript-plugin@claude-plugins",
+            "hooks-plugin@claude-plugins",
+            "serena@claude-plugins-official"
+        ]
+    }
+}
