@@ -1,5 +1,16 @@
 # Multi-stage build for optimized production image
-FROM rust:1.70-bullseye as builder
+FROM rust:1.82-bullseye AS builder
+
+# Install system dependencies needed by mediasoup-sys
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install rustfmt which is needed by mediasoup-sys build script
+RUN rustup component add rustfmt
 
 # Create app directory
 WORKDIR /app
@@ -22,9 +33,10 @@ RUN cargo build --release
 # Runtime stage
 FROM debian:bullseye-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including netcat for health checks
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    netcat \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -37,17 +49,21 @@ RUN mkdir -p /app && chown mediasoup:mediasoup /app
 COPY --from=builder /app/target/release/mediasoup-server /usr/local/bin/mediasoup-server
 RUN chmod +x /usr/local/bin/mediasoup-server
 
+# Copy health check script
+COPY health-check.sh /usr/local/bin/health-check.sh
+RUN chmod +x /usr/local/bin/health-check.sh
+
 # Switch to non-root user
 USER mediasoup
 WORKDIR /app
 
 # Expose ports
-EXPOSE 3000
+EXPOSE 4443
 EXPOSE 10000-10100/udp
 
-# Health check
+# Health check - use script to check if port is listening
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD /usr/local/bin/health-check.sh
 
 # Run the application
 CMD ["mediasoup-server"]

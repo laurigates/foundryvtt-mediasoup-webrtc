@@ -11,6 +11,7 @@ import { registerSettings, setupSettingsHooks } from './ui/settings.js';
 import { setupSceneControls } from './ui/sceneControls.js';
 import { setupPlayerListHooks } from './ui/playerList.js';
 import { injectStyles } from './ui/styles.js';
+import { MediaSoupConfigDialog } from './ui/configDialog.js';
 
 // In test mode, mediasoup-client should already be provided by mock
 // Debug: Log mediasoup-client availability immediately
@@ -66,6 +67,16 @@ Hooks.once('ready', async () => {
     }
     
     log('mediasoup-client library is available from mock', 'info');
+    
+    // Register configuration menu now that FormApplication is available
+    game.settings.registerMenu(MODULE_ID, 'configDialog', {
+        name: 'MediaSoup Server Configuration',
+        label: 'Configure MediaSoup Server',
+        hint: 'Open the comprehensive configuration dialog with setup instructions.',
+        icon: 'fas fa-cogs',
+        type: MediaSoupConfigDialog,
+        restricted: false
+    });
 
     try {
         // Create global client instance with error handling for test environment

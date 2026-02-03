@@ -215,7 +215,7 @@
         <div class="modal-header">MediaSoupVTT Settings</div>
         <div class="form-group">
             <label for="server-url">MediaSoup Server WebSocket URL</label>
-            <input type="url" id="server-url" placeholder="wss://your-server.com:4443">
+            <input type="url" id="server-url" placeholder="wss://your-server.com:4443" pattern="^wss?://.*" title="Please enter a valid WebSocket URL (ws:// or wss://)" required>
             <div class="hint">Enter the WebSocket URL for your MediaSoup server</div>
         </div>
         <div class="form-group">

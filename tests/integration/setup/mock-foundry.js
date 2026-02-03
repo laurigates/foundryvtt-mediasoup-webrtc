@@ -347,6 +347,7 @@ function createMockGame() {
     return {
         version: '13.330',
         userId: 'test-user-123',
+        ready: false, // Initially false, set to true when ready hook is triggered
         settings: new MockSettings(),
         user: {
             id: 'test-user-123',
@@ -530,6 +531,8 @@ export function triggerFoundryLifecycle() {
     
     setTimeout(() => {
         console.log('[MockFoundry] Calling hook: ready []');
+        // Set game.ready flag before calling ready hook to match FoundryVTT behavior
+        window.game.ready = true;
         window.Hooks.call('ready');
     }, 100);
     
