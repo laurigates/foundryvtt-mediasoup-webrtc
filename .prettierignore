@@ -1,0 +1,7 @@
+node_modules/
+dist/
+server/target/
+*.zip
+package-lock.json
+test-results/
+tests/results/
