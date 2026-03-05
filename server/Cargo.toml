@@ -7,14 +7,14 @@ description = "MediaSoup server for FoundryVTT WebRTC plugin"
 
 [dependencies]
 # MediaSoup core
-mediasoup = "0.18"
+mediasoup = "0.20"
 
 # WebSocket server
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.27"
 tokio = { version = "1.35", features = ["full"] }
 
 # HTTP server for static files
-warp = "0.3"
+warp = "0.4"
 
 # JSON serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -28,7 +28,7 @@ config = "0.14"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = ">=0.3.20", features = ["env-filter"] }
 
 # Error handling
 anyhow = "1.0"
@@ -36,6 +36,7 @@ thiserror = "1.0"
 
 # Collections
 dashmap = "5.5"
+slab = "0.4"
 
 # Network utilities
 futures-util = "0.3"

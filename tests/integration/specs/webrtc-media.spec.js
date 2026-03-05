@@ -10,12 +10,15 @@ import { test, expect } from '@playwright/test';
 test.describe('MediaSoup WebRTC Media', () => {
   let page;
   
-  test.beforeEach(async ({ browser }) => {
+  test.beforeEach(async ({ browser, browserName }) => {
     page = await browser.newPage();
     
-    // Grant media permissions upfront
-    const context = page.context();
-    await context.grantPermissions(['camera', 'microphone']);
+    // Grant media permissions upfront - Firefox doesn't support this directly
+    // For Firefox, we rely on the fake devices in our test configuration
+    if (browserName !== 'firefox') {
+      const context = page.context();
+      await context.grantPermissions(['camera', 'microphone']);
+    }
     
     // Navigate to test sandbox and initialize plugin
     await page.goto('/tests/integration/setup/test-sandbox.html');
@@ -26,14 +29,24 @@ test.describe('MediaSoup WebRTC Media', () => {
     await page.waitForFunction(() => window.MediaSoupVTT_Client);
   });
   
-  test.afterEach(async () => {
+  test.afterEach(async ({ browserName }) => {
     // Clean up any media streams
     await page.evaluate(() => {
       if (window.MediaSoupVTT_Client) {
         window.MediaSoupVTT_Client.disconnect();
       }
+    }).catch(() => {
+      // Ignore errors during cleanup
     });
-    await page.close();
+    
+    // Firefox has issues with closing pages in certain contexts
+    // Use try-catch to prevent test failures during cleanup
+    try {
+      await page.close();
+    } catch (error) {
+      // Log but don't fail on close errors
+      console.warn('Warning: Page close failed during cleanup:', error.message);
+    }
   });
   
   test('should request media permissions successfully', async () => {

@@ -3,8 +3,6 @@ use crate::error::{MediaSoupError, Result};
 use crate::signaling::{NewProducerNotification, ProducerClosedNotification, SignalingMessage};
 use dashmap::DashMap;
 use mediasoup::prelude::*;
-use mediasoup::data_structures::{ListenInfo, Protocol, AppData};
-use mediasoup::rtp_parameters::RtpCapabilitiesFinalized;
 use serde_json::Value;
 use std::sync::Arc;
 use std::num::{NonZeroU32, NonZeroU8};
@@ -150,10 +148,10 @@ impl Room {
         &self,
         peer_id: &str,
         listen_ips: Vec<ListenIp>,
-        enable_udp: bool,
-        enable_tcp: bool,
-        prefer_udp: bool,
-        enable_sctp: bool,
+        _enable_udp: bool,
+        _enable_tcp: bool,
+        _prefer_udp: bool,
+        _enable_sctp: bool,
     ) -> Result<WebRtcTransport> {
         let peer = self.get_peer(peer_id)
             .ok_or_else(|| MediaSoupError::PeerNotFound(peer_id.to_string()))?;
@@ -167,6 +165,7 @@ impl Room {
                 announced_address: listen_ip.announced_ip,
                 port: None, // Let mediasoup choose
                 port_range: None,
+                expose_internal_ip: false, // Don't expose internal IP
                 flags: None,
                 send_buffer_size: None,
                 recv_buffer_size: None,
@@ -182,6 +181,7 @@ impl Room {
                     announced_address: None,
                     port: None,
                     port_range: None,
+                    expose_internal_ip: false,
                     flags: None,
                     send_buffer_size: None,
                     recv_buffer_size: None,
@@ -285,7 +285,7 @@ impl Room {
     }
     
     /// Get RTP capabilities of the router
-    pub fn get_rtp_capabilities(&self) -> &RtpCapabilitiesFinalized {
+    pub fn get_rtp_capabilities(&self) -> RtpCapabilitiesFinalized {
         self.router.rtp_capabilities()
     }
     
