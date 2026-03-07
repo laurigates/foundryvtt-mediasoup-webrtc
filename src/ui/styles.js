@@ -38,7 +38,7 @@ export function injectStyles() {
     if (existingStyles) {
         existingStyles.remove();
     }
-    
+
     const styleElement = document.createElement('style');
     styleElement.id = 'mediasoup-vtt-styles';
     styleElement.textContent = styles;

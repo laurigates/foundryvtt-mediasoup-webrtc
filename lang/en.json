@@ -1,48 +1,48 @@
 {
-  "MEDIASOUPVTT": {
-    "Settings": {
-      "DebugLogging": {
-        "Name": "Debug Logging",
-        "Hint": "Outputs verbose logging to the console for debugging purposes."
-      },
-      "ServerUrl": {
-        "Name": "MediaSoup Server WebSocket URL",
-        "Hint": "The WebSocket URL (e.g., wss://your.server.com:4443). Required."
-      },
-      "AutoConnect": {
-        "Name": "Auto-connect to MediaSoup Server",
-        "Hint": "If checked, attempts to connect automatically when you join a game world."
-      },
-      "DefaultAudioDevice": {
-        "Name": "Default Microphone",
-        "Hint": "Select preferred microphone. List populates after connecting or opening settings."
-      },
-      "DefaultVideoDevice": {
-        "Name": "Default Webcam",
-        "Hint": "Select preferred webcam. List populates after connecting or opening settings."
-      }
-    },
-    "Notifications": {
-      "Connected": "Successfully connected to MediaSoup server.",
-      "Disconnected": "Disconnected from MediaSoup server.",
-      "ConnectionError": "WebSocket connection error.",
-      "ServerUrlNotSet": "MediaSoup server URL not configured. Please set it in module settings.",
-      "LibraryNotFound": "mediasoup-client library not found! Critical error.",
-      "NotReady": "Cannot start audio/video. Not ready.",
-      "NotConnected": "Not connected to MediaSoup server.",
-      "ActionFailed": "Action failed"
-    },
-    "Controls": {
-      "Connect": "Connect MediaSoup A/V",
-      "Disconnect": "Disconnect MediaSoup A/V",
-      "Connecting": "Connecting MediaSoup A/V...",
-      "ConnectionError": "Connection Error - Click to Retry MediaSoup A/V",
-      "StartMicrophone": "Start Microphone",
-      "MuteMicrophone": "Mute Microphone",
-      "UnmuteMicrophone": "Unmute Microphone",
-      "StartCamera": "Start Camera",
-      "TurnCameraOff": "Turn Camera Off",
-      "TurnCameraOn": "Turn Camera On"
+    "MEDIASOUPVTT": {
+        "Settings": {
+            "DebugLogging": {
+                "Name": "Debug Logging",
+                "Hint": "Outputs verbose logging to the console for debugging purposes."
+            },
+            "ServerUrl": {
+                "Name": "MediaSoup Server WebSocket URL",
+                "Hint": "The WebSocket URL (e.g., wss://your.server.com:4443). Required."
+            },
+            "AutoConnect": {
+                "Name": "Auto-connect to MediaSoup Server",
+                "Hint": "If checked, attempts to connect automatically when you join a game world."
+            },
+            "DefaultAudioDevice": {
+                "Name": "Default Microphone",
+                "Hint": "Select preferred microphone. List populates after connecting or opening settings."
+            },
+            "DefaultVideoDevice": {
+                "Name": "Default Webcam",
+                "Hint": "Select preferred webcam. List populates after connecting or opening settings."
+            }
+        },
+        "Notifications": {
+            "Connected": "Successfully connected to MediaSoup server.",
+            "Disconnected": "Disconnected from MediaSoup server.",
+            "ConnectionError": "WebSocket connection error.",
+            "ServerUrlNotSet": "MediaSoup server URL not configured. Please set it in module settings.",
+            "LibraryNotFound": "mediasoup-client library not found! Critical error.",
+            "NotReady": "Cannot start audio/video. Not ready.",
+            "NotConnected": "Not connected to MediaSoup server.",
+            "ActionFailed": "Action failed"
+        },
+        "Controls": {
+            "Connect": "Connect MediaSoup A/V",
+            "Disconnect": "Disconnect MediaSoup A/V",
+            "Connecting": "Connecting MediaSoup A/V...",
+            "ConnectionError": "Connection Error - Click to Retry MediaSoup A/V",
+            "StartMicrophone": "Start Microphone",
+            "MuteMicrophone": "Mute Microphone",
+            "UnmuteMicrophone": "Unmute Microphone",
+            "StartCamera": "Start Camera",
+            "TurnCameraOff": "Turn Camera Off",
+            "TurnCameraOn": "Turn Camera On"
+        }
     }
-  }
 }

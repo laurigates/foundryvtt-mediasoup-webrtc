@@ -66,9 +66,9 @@
         
         window.ui = {
             notifications: {
-                error: (msg) => log('ERROR: ' + msg),
-                info: (msg) => log('INFO: ' + msg),
-                warn: (msg) => log('WARN: ' + msg)
+                error: (msg) => log(`ERROR: ${msg}`),
+                info: (msg) => log(`INFO: ${msg}`),
+                warn: (msg) => log(`WARN: ${msg}`)
             }
         };
         
@@ -95,12 +95,12 @@
             statusDiv.className = `status ${type}`;
         }
         
-        function clearLog() {
+        function _clearLog() {
             document.getElementById('log').innerHTML = '';
         }
         
         // Test the original method (scripts field in module.json)
-        async function testOriginalMethod() {
+        async function _testOriginalMethod() {
             log('=== Testing Original Method ===');
             updateStatus('Testing original method...', 'info');
             
@@ -137,13 +137,13 @@
                 }
                 
             } catch (error) {
-                log('❌ Error in original method: ' + error.message);
+                log(`❌ Error in original method: ${error.message}`);
                 updateStatus('Original method failed', 'error');
             }
         }
         
         // Test the new method (dynamic loading with fallback)
-        async function testNewMethod() {
+        async function _testNewMethod() {
             log('=== Testing New Method ===');
             updateStatus('Testing new method...', 'info');
             
@@ -195,12 +195,12 @@
                 // Test instantiation
                 const device = new window.mediasoupClient.Device();
                 log('✅ MediaSoup Device can be instantiated');
-                log('✅ Device loaded state: ' + device.loaded);
+                log(`✅ Device loaded state: ${device.loaded}`);
                 
                 updateStatus('New method works!', 'success');
                 
             } catch (error) {
-                log('❌ Error in new method: ' + error.message);
+                log(`❌ Error in new method: ${error.message}`);
                 updateStatus('New method failed', 'error');
             }
         }
