@@ -1,38 +1,38 @@
 {
-  "users": [
-    {
-      "id": "test-user-123",
-      "name": "Test User",
-      "isGM": true
-    },
-    {
-      "id": "test-user-456",
-      "name": "Test Player",
-      "isGM": false
-    }
-  ],
-  "settings": {
-    "mediaSoupServerUrl": "ws://localhost:4443",
-    "autoConnect": true,
-    "debugLogging": true
-  },
-  "signaling": {
-    "getRouterRtpCapabilities": {
-      "codecs": [
+    "users": [
         {
-          "kind": "audio",
-          "mimeType": "audio/opus",
-          "clockRate": 48000,
-          "channels": 2
+            "id": "test-user-123",
+            "name": "Test User",
+            "isGM": true
         },
         {
-          "kind": "video",
-          "mimeType": "video/VP8",
-          "clockRate": 90000
+            "id": "test-user-456",
+            "name": "Test Player",
+            "isGM": false
         }
-      ],
-      "headerExtensions": [],
-      "fecMechanisms": []
+    ],
+    "settings": {
+        "mediaSoupServerUrl": "ws://localhost:4443",
+        "autoConnect": true,
+        "debugLogging": true
+    },
+    "signaling": {
+        "getRouterRtpCapabilities": {
+            "codecs": [
+                {
+                    "kind": "audio",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000,
+                    "channels": 2
+                },
+                {
+                    "kind": "video",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                }
+            ],
+            "headerExtensions": [],
+            "fecMechanisms": []
+        }
     }
-  }
 }

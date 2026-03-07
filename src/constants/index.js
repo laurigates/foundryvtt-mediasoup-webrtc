@@ -21,6 +21,10 @@ export const MEDIA_KIND_VIDEO = 'video';
 export const APP_DATA_TAG_MIC = 'mic';
 export const APP_DATA_TAG_WEBCAM = 'webcam';
 
+// Timeout values (ms)
+export const CONNECTION_TIMEOUT_MS = 15000;
+export const SIGNALING_REQUEST_TIMEOUT_MS = 10000;
+
 // Signaling message types
 export const SIG_MSG_TYPES = {
     GET_ROUTER_RTP_CAPABILITIES: 'getRouterRtpCapabilities',

@@ -1,0 +1,106 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
+    "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true, "defaultBranch": "main" },
+    "files": { "includes": ["**", "!!**/dist", "!templates"] },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineEnding": "lf",
+        "lineWidth": 100,
+        "useEditorconfig": true
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "suspicious": {
+                "noConsole": "off",
+                "useIterableCallbackReturn": "off"
+            },
+            "correctness": {
+                "noUnusedVariables": "warn",
+                "noUndeclaredVariables": "error",
+                "noUnusedFunctionParameters": "warn"
+            },
+            "style": {
+                "noDescendingSpecificity": "off"
+            },
+            "a11y": {
+                "useButtonType": "warn",
+                "useHtmlLang": "warn"
+            }
+        }
+    },
+    "javascript": {
+        "formatter": {
+            "trailingCommas": "es5",
+            "semicolons": "always",
+            "arrowParentheses": "always",
+            "quoteStyle": "single"
+        }
+    },
+    "overrides": [
+        {
+            "includes": ["src/**/*.js"],
+            "javascript": {
+                "globals": [
+                    "$",
+                    "Actor",
+                    "CONFIG",
+                    "ChatMessage",
+                    "Compendium",
+                    "Folder",
+                    "FormApplication",
+                    "Hooks",
+                    "Item",
+                    "JournalEntry",
+                    "Macro",
+                    "MediaStream",
+                    "Playlist",
+                    "Roll",
+                    "RollTable",
+                    "Scene",
+                    "Setting",
+                    "SettingsConfig",
+                    "URL",
+                    "User",
+                    "WebSocket",
+                    "canvas",
+                    "clearInterval",
+                    "clearTimeout",
+                    "console",
+                    "document",
+                    "foundry",
+                    "game",
+                    "mediasoupClient",
+                    "navigator",
+                    "setInterval",
+                    "setTimeout",
+                    "ui",
+                    "window"
+                ]
+            }
+        },
+        {
+            "includes": ["tests/**/*.js"],
+            "javascript": {
+                "globals": [
+                    "Hooks",
+                    "MediaStream",
+                    "WebSocket",
+                    "browser",
+                    "console",
+                    "document",
+                    "expect",
+                    "game",
+                    "navigator",
+                    "page",
+                    "test",
+                    "window"
+                ]
+            }
+        }
+    ],
+    "assist": { "enabled": true, "actions": { "source": { "organizeImports": "on" } } }
+}

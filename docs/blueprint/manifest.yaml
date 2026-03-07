@@ -1,0 +1,45 @@
+project:
+    name: foundryvtt-mediasoup-webrtc
+    description: >
+        WebRTC audio/video communication module for FoundryVTT using a self-hosted
+        MediaSoup SFU server. Provides real-time A/V between players, scene controls
+        integration, and server-side audio recording capability for external
+        D&D helper applications.
+    version: 0.7.20
+    language: javascript
+    framework: none (FoundryVTT module)
+    repository: https://github.com/laurigates/foundryvtt-mediasoup-webrtc
+    license: MIT
+
+components:
+    - name: client-module
+      path: src/
+      language: javascript
+      description: FoundryVTT ES module built with Rollup
+    - name: sfu-server
+      path: server/
+      language: rust
+      description: MediaSoup SFU server with WebSocket signaling
+    - name: integration-tests
+      path: tests/
+      language: javascript
+      description: Playwright end-to-end integration tests
+
+documents:
+    prds:
+        - id: PRD-001
+          file: prds/PRD-001-mediasoup-vtt-client-module.md
+          title: MediaSoupVTT Client Module
+          status: draft
+          created: 2026-03-05
+    adrs:
+        - id: ADR-001
+          file: adrs/ADR-001-mediasoup-sfu-architecture.md
+          title: MediaSoup SFU Architecture
+          status: accepted
+          created: 2026-03-05
+        - id: ADR-002
+          file: adrs/ADR-002-rollup-es-modules-build-system.md
+          title: Rollup and ES Modules Build System
+          status: accepted
+          created: 2026-03-05

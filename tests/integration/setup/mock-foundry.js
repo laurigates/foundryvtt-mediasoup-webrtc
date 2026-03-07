@@ -1,23 +1,24 @@
 /**
  * Mock FoundryVTT Environment for Integration Testing
- * 
+ *
  * This creates a minimal mock of FoundryVTT's global objects and APIs
  * to enable testing the MediaSoup plugin without requiring FoundryVTT sources.
  */
 
 // Mock jQuery-like function for DOM manipulation
 function mockJQuery(selector) {
-    const elements = typeof selector === 'string' ? 
-        Array.from(document.querySelectorAll(selector)) : 
-        [selector].filter(Boolean);
-    
+    const elements =
+        typeof selector === 'string'
+            ? Array.from(document.querySelectorAll(selector))
+            : [selector].filter(Boolean);
+
     const jqObj = {
         length: elements.length,
-        
+
         // Add jQuery-like methods
         find: (childSelector) => mockJQuery(childSelector),
         append: (content) => {
-            elements.forEach(el => {
+            elements.forEach((el) => {
                 if (typeof content === 'string') {
                     el.insertAdjacentHTML('beforeend', content);
                 } else if (content.nodeType) {
@@ -27,7 +28,7 @@ function mockJQuery(selector) {
             return jqObj;
         },
         after: (content) => {
-            elements.forEach(el => {
+            elements.forEach((el) => {
                 if (typeof content === 'string') {
                     el.insertAdjacentHTML('afterend', content);
                 } else if (content.nodeType) {
@@ -37,32 +38,32 @@ function mockJQuery(selector) {
             return jqObj;
         },
         remove: () => {
-            elements.forEach(el => el.remove());
+            elements.forEach((el) => el.remove());
             return jqObj;
         },
         attr: (name, value) => {
             if (value !== undefined) {
-                elements.forEach(el => el.setAttribute(name, value));
+                elements.forEach((el) => el.setAttribute(name, value));
                 return jqObj;
             }
             return elements[0]?.getAttribute(name);
         },
         data: (name, value) => {
             if (value !== undefined) {
-                elements.forEach(el => el.dataset[name] = value);
+                elements.forEach((el) => (el.dataset[name] = value));
                 return jqObj;
             }
             return elements[0]?.dataset[name];
         },
         val: (value) => {
             if (value !== undefined) {
-                elements.forEach(el => el.value = value);
+                elements.forEach((el) => (el.value = value));
                 return jqObj;
             }
             return elements[0]?.value;
         },
         is: (selector) => {
-            return elements.some(el => el.matches(selector));
+            return elements.some((el) => el.matches(selector));
         },
         each: (callback) => {
             elements.forEach((el, index) => callback.call(el, index, el));
@@ -71,24 +72,24 @@ function mockJQuery(selector) {
         get: (index) => elements[index],
         eq: (index) => mockJQuery(elements[index]),
         addClass: (className) => {
-            elements.forEach(el => el.classList.add(className));
+            elements.forEach((el) => el.classList.add(className));
             return jqObj;
         },
         removeClass: (className) => {
-            elements.forEach(el => el.classList.remove(className));
+            elements.forEach((el) => el.classList.remove(className));
             return jqObj;
         },
         on: (event, handler) => {
-            elements.forEach(el => el.addEventListener(event, handler));
+            elements.forEach((el) => el.addEventListener(event, handler));
             return jqObj;
-        }
+        },
     };
-    
+
     // Make it array-like
     elements.forEach((el, index) => {
         jqObj[index] = el;
     });
-    
+
     return jqObj;
 }
 
@@ -98,10 +99,10 @@ class MockSettings {
         this.settings = new Map();
         this.menus = new Map();
     }
-    
+
     register(module, key, options) {
         const fullKey = `${module}.${key}`;
-        
+
         // Manually create the setting object to ensure the type field is preserved
         // Convert function constructors to their string names for cross-boundary compatibility
         let typeValue = options.type;
@@ -111,7 +112,7 @@ class MockSettings {
             else if (options.type === Number) typeValue = 'Number';
             else typeValue = options.type.name || 'Function';
         }
-        
+
         const setting = {
             name: options.name,
             hint: options.hint,
@@ -122,35 +123,38 @@ class MockSettings {
             choices: options.choices,
             onChange: options.onChange,
             key: fullKey,
-            value: options.default
+            value: options.default,
         };
-        
+
         // Remove undefined fields
-        Object.keys(setting).forEach(key => {
+        Object.keys(setting).forEach((key) => {
             if (setting[key] === undefined) {
                 delete setting[key];
             }
         });
-        
+
         this.settings.set(fullKey, setting);
-        console.log(`[MockFoundry] Registered setting: ${fullKey}`, JSON.stringify(options, (key, value) => {
-            if (typeof value === 'function') {
-                return value.name || 'Function';
-            }
-            return value;
-        }));
+        console.log(
+            `[MockFoundry] Registered setting: ${fullKey}`,
+            JSON.stringify(options, (_key, value) => {
+                if (typeof value === 'function') {
+                    return value.name || 'Function';
+                }
+                return value;
+            })
+        );
     }
-    
+
     registerMenu(module, key, options) {
         const fullKey = `${module}.${key}`;
-        
+
         // Manually create the menu object to ensure the type field is preserved
         // Convert function constructors to their string names for cross-boundary compatibility
         let typeValue = options.type;
         if (typeof options.type === 'function') {
             typeValue = options.type.name || 'Function';
         }
-        
+
         const menu = {
             name: options.name,
             label: options.label,
@@ -158,31 +162,34 @@ class MockSettings {
             icon: options.icon,
             type: typeValue, // Store converted type
             restricted: options.restricted,
-            key: fullKey
+            key: fullKey,
         };
-        
+
         // Remove undefined fields
-        Object.keys(menu).forEach(key => {
+        Object.keys(menu).forEach((key) => {
             if (menu[key] === undefined) {
                 delete menu[key];
             }
         });
-        
+
         this.menus.set(fullKey, menu);
-        console.log(`[MockFoundry] Registered menu: ${fullKey}`, JSON.stringify(options, (key, value) => {
-            if (typeof value === 'function') {
-                return value.name || 'Function';
-            }
-            return value;
-        }));
+        console.log(
+            `[MockFoundry] Registered menu: ${fullKey}`,
+            JSON.stringify(options, (_key, value) => {
+                if (typeof value === 'function') {
+                    return value.name || 'Function';
+                }
+                return value;
+            })
+        );
     }
-    
+
     get(module, key) {
         const fullKey = `${module}.${key}`;
         const setting = this.settings.get(fullKey);
         return setting ? setting.value : undefined;
     }
-    
+
     set(module, key, value) {
         const fullKey = `${module}.${key}`;
         const setting = this.settings.get(fullKey);
@@ -195,20 +202,20 @@ class MockSettings {
         }
         console.log(`[MockFoundry] Set setting ${fullKey} = ${value}`);
     }
-    
+
     // Get all registered settings for testing
     getAllSettings() {
         return Array.from(this.settings.entries()).map(([key, setting]) => ({
             key,
-            ...setting
+            ...setting,
         }));
     }
-    
+
     // Get all registered menus for testing
     getAllMenus() {
         return Array.from(this.menus.entries()).map(([key, menu]) => ({
             key,
-            ...menu
+            ...menu,
         }));
     }
 }
@@ -218,41 +225,41 @@ class MockNotifications {
     constructor() {
         this.notifications = [];
     }
-    
+
     info(message, options = {}) {
         const notification = { type: 'info', message, options, timestamp: Date.now() };
         this.notifications.push(notification);
         console.log(`[MockFoundry] INFO: ${message}`, options);
         return notification;
     }
-    
+
     warn(message, options = {}) {
         const notification = { type: 'warn', message, options, timestamp: Date.now() };
         this.notifications.push(notification);
         console.warn(`[MockFoundry] WARN: ${message}`, options);
         return notification;
     }
-    
+
     error(message, options = {}) {
         const notification = { type: 'error', message, options, timestamp: Date.now() };
         this.notifications.push(notification);
         console.error(`[MockFoundry] ERROR: ${message}`, options);
         return notification;
     }
-    
+
     // Get all notifications for testing
     getAll() {
         return [...this.notifications];
     }
-    
+
     // Clear notifications
     clear() {
         this.notifications = [];
     }
-    
+
     // Get notifications by type
     getByType(type) {
-        return this.notifications.filter(n => n.type === type);
+        return this.notifications.filter((n) => n.type === type);
     }
 }
 
@@ -261,7 +268,7 @@ class MockHooks {
     constructor() {
         this.hooks = new Map();
     }
-    
+
     on(event, callback) {
         if (!this.hooks.has(event)) {
             this.hooks.set(event, []);
@@ -269,7 +276,7 @@ class MockHooks {
         this.hooks.get(event).push(callback);
         console.log(`[MockFoundry] Registered hook: ${event}`);
     }
-    
+
     once(event, callback) {
         const onceWrapper = (...args) => {
             callback(...args);
@@ -277,7 +284,7 @@ class MockHooks {
         };
         this.on(event, onceWrapper);
     }
-    
+
     off(event, callback) {
         if (this.hooks.has(event)) {
             const callbacks = this.hooks.get(event);
@@ -287,12 +294,12 @@ class MockHooks {
             }
         }
     }
-    
+
     call(event, ...args) {
         console.log(`[MockFoundry] Calling hook: ${event}`, args);
         if (this.hooks.has(event)) {
             const callbacks = this.hooks.get(event);
-            callbacks.forEach(callback => {
+            callbacks.forEach((callback) => {
                 try {
                     callback(...args);
                 } catch (error) {
@@ -301,7 +308,7 @@ class MockHooks {
             });
         }
     }
-    
+
     // Get registered hooks for testing
     getRegisteredHooks() {
         return Array.from(this.hooks.keys());
@@ -313,18 +320,18 @@ class MockPlayerList {
     constructor() {
         this.players = new Map();
     }
-    
+
     render(force = false) {
         console.log(`[MockFoundry] PlayerList.render(${force})`);
         // Trigger renderPlayerList hook
         window.Hooks.call('renderPlayerList', this, mockJQuery('#player-list'), {});
     }
-    
+
     addPlayer(userId, userData) {
         this.players.set(userId, userData);
         this.render();
     }
-    
+
     removePlayer(userId) {
         this.players.delete(userId);
         this.render();
@@ -338,7 +345,7 @@ function mockSceneControls() {
         activeControl: null,
         render: (force = false) => {
             console.log(`[MockFoundry] SceneControls.render(${force})`);
-        }
+        },
     };
 }
 
@@ -352,12 +359,12 @@ function createMockGame() {
         user: {
             id: 'test-user-123',
             name: 'Test User',
-            isGM: true
+            isGM: true,
         },
         users: new Map([
             ['test-user-123', { id: 'test-user-123', name: 'Test User', isGM: true }],
-            ['test-user-456', { id: 'test-user-456', name: 'Test Player', isGM: false }]
-        ])
+            ['test-user-456', { id: 'test-user-456', name: 'Test Player', isGM: false }],
+        ]),
     };
 }
 
@@ -366,7 +373,7 @@ function createMockUI() {
     return {
         notifications: new MockNotifications(),
         players: new MockPlayerList(),
-        controls: mockSceneControls()
+        controls: mockSceneControls(),
     };
 }
 
@@ -376,25 +383,25 @@ class MockFormApplication {
         this.options = options;
         this.rendered = false;
     }
-    
+
     render(force = false) {
         console.log(`[MockFoundry] FormApplication.render(${force})`);
         this.rendered = true;
         return this;
     }
-    
+
     close() {
         console.log('[MockFoundry] FormApplication.close()');
         this.rendered = false;
         return Promise.resolve();
     }
-    
+
     static get defaultOptions() {
         return {
             classes: [],
             template: null,
             width: 'auto',
-            height: 'auto'
+            height: 'auto',
         };
     }
 }
@@ -402,7 +409,7 @@ class MockFormApplication {
 // Initialize Mock Environment
 export function initializeMockFoundryVTT() {
     console.log('[MockFoundry] Initializing mock FoundryVTT environment...');
-    
+
     // Set up global objects
     window.$ = mockJQuery;
     window.jQuery = mockJQuery;
@@ -410,7 +417,7 @@ export function initializeMockFoundryVTT() {
     window.ui = createMockUI();
     window.Hooks = new MockHooks();
     window.FormApplication = MockFormApplication;
-    
+
     // Create basic DOM structure for player list
     const playerListHTML = `
         <div id="player-list" class="app">
@@ -424,14 +431,14 @@ export function initializeMockFoundryVTT() {
             </ol>
         </div>
     `;
-    
+
     // Create scene controls structure
     const sceneControlsHTML = `
         <div id="controls" class="app">
             <ol class="scene-control-buttons"></ol>
         </div>
     `;
-    
+
     // Add to document if not exists
     if (!document.getElementById('player-list')) {
         document.body.insertAdjacentHTML('beforeend', playerListHTML);
@@ -439,7 +446,7 @@ export function initializeMockFoundryVTT() {
     if (!document.getElementById('controls')) {
         document.body.insertAdjacentHTML('beforeend', sceneControlsHTML);
     }
-    
+
     // Add CSS for minimal styling
     const styles = `
         <style id="mock-foundry-styles">
@@ -503,39 +510,39 @@ export function initializeMockFoundryVTT() {
             }
         </style>
     `;
-    
+
     if (!document.getElementById('mock-foundry-styles')) {
         document.head.insertAdjacentHTML('beforeend', styles);
     }
-    
+
     console.log('[MockFoundry] Mock FoundryVTT environment initialized');
-    
+
     // Return the mock objects for testing access
     return {
         game: window.game,
         ui: window.ui,
         Hooks: window.Hooks,
-        $: window.$
+        $: window.$,
     };
 }
 
 // Helper function to trigger common FoundryVTT lifecycle events
 export function triggerFoundryLifecycle() {
     console.log('[MockFoundry] Triggering FoundryVTT lifecycle events...');
-    
+
     // Simulate FoundryVTT initialization sequence with shorter delays for testing
     setTimeout(() => {
         console.log('[MockFoundry] Calling hook: init []');
         window.Hooks.call('init');
     }, 50);
-    
+
     setTimeout(() => {
         console.log('[MockFoundry] Calling hook: ready []');
         // Set game.ready flag before calling ready hook to match FoundryVTT behavior
         window.game.ready = true;
         window.Hooks.call('ready');
     }, 100);
-    
+
     setTimeout(() => {
         console.log('[MockFoundry] Calling hook: getSceneControlButtons [[]]');
         window.Hooks.call('getSceneControlButtons', []);
@@ -548,6 +555,6 @@ export function getTestResults() {
         settings: window.game.settings.getAllSettings(),
         menus: window.game.settings.getAllMenus(),
         notifications: window.ui.notifications.getAll(),
-        hooks: window.Hooks.getRegisteredHooks()
+        hooks: window.Hooks.getRegisteredHooks(),
     };
 }

@@ -40,7 +40,7 @@ class MockDevice {
 class MockTransport {
     constructor(direction, options = {}) {
         this.direction = direction;
-        this.id = options.id || 'mock-transport-' + Math.random().toString(36).substr(2, 9);
+        this.id = options.id || `mock-transport-${Math.random().toString(36).substr(2, 9)}`;
         this.iceParameters = options.iceParameters || {};
         this.iceCandidates = options.iceCandidates || [];
         this.dtlsParameters = options.dtlsParameters || {};
@@ -50,7 +50,7 @@ class MockTransport {
             connect: [],
             produce: [],
             consume: [],
-            connectionstatechange: []
+            connectionstatechange: [],
         };
     }
 
@@ -71,20 +71,20 @@ class MockTransport {
 
     emit(event, ...args) {
         if (this._observers[event]) {
-            this._observers[event].forEach(handler => handler(...args));
+            this._observers[event].forEach((handler) => handler(...args));
         }
     }
 
     async connect({ dtlsParameters }) {
         this.connectionState = 'connecting';
         this.emit('connectionstatechange', 'connecting');
-        
+
         // Simulate connection
         setTimeout(() => {
             this.connectionState = 'connected';
             this.emit('connectionstatechange', 'connected');
         }, 100);
-        
+
         return Promise.resolve();
     }
 
@@ -92,7 +92,7 @@ class MockTransport {
         if (this.direction !== 'send') {
             throw new Error('Cannot produce on recv transport');
         }
-        
+
         const producer = new MockProducer({ kind, rtpParameters, track });
         this.emit('produce', producer);
         return producer;
@@ -102,7 +102,7 @@ class MockTransport {
         if (this.direction !== 'recv') {
             throw new Error('Cannot consume on send transport');
         }
-        
+
         const consumer = new MockConsumer({ id, producerId, kind, rtpParameters });
         this.emit('consume', consumer);
         return consumer;
@@ -116,7 +116,7 @@ class MockTransport {
 
 class MockProducer {
     constructor({ kind, rtpParameters, track }) {
-        this.id = 'mock-producer-' + Math.random().toString(36).substr(2, 9);
+        this.id = `mock-producer-${Math.random().toString(36).substr(2, 9)}`;
         this.kind = kind;
         this.rtpParameters = rtpParameters;
         this.track = track;
@@ -124,7 +124,7 @@ class MockProducer {
         this.closed = false;
         this._observers = {
             transportclose: [],
-            trackended: []
+            trackended: [],
         };
     }
 
@@ -145,7 +145,7 @@ class MockProducer {
 
     emit(event, ...args) {
         if (this._observers[event]) {
-            this._observers[event].forEach(handler => handler(...args));
+            this._observers[event].forEach((handler) => handler(...args));
         }
     }
 
@@ -173,7 +173,7 @@ class MockConsumer {
         this.track = new MockMediaStreamTrack(kind);
         this._observers = {
             transportclose: [],
-            trackended: []
+            trackended: [],
         };
     }
 
@@ -194,7 +194,7 @@ class MockConsumer {
 
     emit(event, ...args) {
         if (this._observers[event]) {
-            this._observers[event].forEach(handler => handler(...args));
+            this._observers[event].forEach((handler) => handler(...args));
         }
     }
 
@@ -214,7 +214,7 @@ class MockConsumer {
 class MockMediaStreamTrack {
     constructor(kind) {
         this.kind = kind;
-        this.id = 'mock-track-' + Math.random().toString(36).substr(2, 9);
+        this.id = `mock-track-${Math.random().toString(36).substr(2, 9)}`;
         this.label = `Mock ${kind} track`;
         this.enabled = true;
         this.muted = false;
@@ -235,7 +235,7 @@ function detectDevice() {
     return {
         flag: 'chrome',
         name: 'Chrome',
-        version: '120.0.0'
+        version: '120.0.0',
     };
 }
 
@@ -244,36 +244,36 @@ const mockMediasoupClient = {
     version: '3.11.0',
     Device: MockDevice,
     detectDevice: detectDevice,
-    
+
     // Additional exports that might be used
     types: {
         RtpCodecCapability: {},
         RtpHeaderExtension: {},
         RtpParameters: {},
         RtpCapabilities: {},
-        SctpCapabilities: {}
+        SctpCapabilities: {},
     },
-    
+
     // Mock some utility functions
-    parseScalabilityMode: (scalabilityMode) => ({
+    parseScalabilityMode: (_scalabilityMode) => ({
         spatialLayers: 1,
-        temporalLayers: 1
+        temporalLayers: 1,
     }),
-    
+
     getSupportedRtpCapabilities: () => ({
         codecs: [
             {
                 mimeType: 'audio/opus',
                 clockRate: 48000,
-                channels: 2
+                channels: 2,
             },
             {
                 mimeType: 'video/VP8',
-                clockRate: 90000
-            }
+                clockRate: 90000,
+            },
         ],
-        headerExtensions: []
-    })
+        headerExtensions: [],
+    }),
 };
 
 // Export for ES modules
