@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ES2020",
+        "moduleResolution": "bundler",
+        "checkJs": true,
+        "strict": false,
+        "baseUrl": ".",
+        "paths": {
+            "*": ["src/*"]
+        }
+    },
+    "include": ["src/**/*.js"],
+    "exclude": ["node_modules", "dist", "server"]
+}
