@@ -9,10 +9,10 @@
         "build:test": "rollup -c rollup.config.test.js",
         "build:watch": "rollup -c --watch",
         "dev": "npm run build:watch",
-        "lint": "eslint src/**/*.js",
-        "lint:fix": "eslint src/**/*.js --fix",
-        "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\" \"*.config.js\" \"*.cjs\"",
-        "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\" \"*.config.js\" \"*.cjs\"",
+        "lint": "biome check .",
+        "lint:fix": "biome check --write .",
+        "format": "biome format --write .",
+        "format:check": "biome format .",
         "clean": "rimraf dist/",
         "process-template": "node scripts/process-template.cjs",
         "package": "npm run build && npm run process-template && npm run package:zip",
@@ -26,15 +26,8 @@
         "prepare": "husky"
     },
     "lint-staged": {
-        "src/**/*.js": [
-            "eslint --fix",
-            "prettier --write"
-        ],
-        "tests/**/*.js": [
-            "prettier --write"
-        ],
-        "*.{json,md,yml,yaml}": [
-            "prettier --write"
+        "*.{js,ts,json,css}": [
+            "biome check --write --no-errors-on-unmatched"
         ]
     },
     "keywords": [
@@ -51,15 +44,13 @@
     "author": "Your Name",
     "license": "MIT",
     "devDependencies": {
-        "@eslint/js": "^9.31.0",
+        "@biomejs/biome": "^2.4.6",
         "@playwright/test": "^1.54.1",
         "@rollup/plugin-commonjs": "^28.0.6",
         "@rollup/plugin-node-resolve": "^16.0.1",
-        "@rollup/plugin-terser": "^0.4.4",
-        "eslint": "^9.31.0",
+        "@rollup/plugin-terser": "^1.0.0",
         "husky": "^9.1.7",
         "lint-staged": "^15.2.11",
-        "prettier": "^3.4.2",
         "rimraf": "^6.0.1",
         "rollup": "^4.45.0"
     },
