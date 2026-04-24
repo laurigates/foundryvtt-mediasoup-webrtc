@@ -149,10 +149,12 @@ test.describe('MediaSoup Settings Configuration', () => {
         expect(audioOptions.length).toBeGreaterThan(1); // Should have more than just 'Browser Default'
         expect(audioOptions).toContain('Browser Default'); // Always has this default option
 
-        // Check that we have some audio input devices beyond the default
-        const audioInputDevices = audioOptions.filter(
-            (option) => option !== 'Browser Default' && option.includes('Audio')
-        );
+        // Check that we have some audio input devices beyond the default.
+        // The sandbox only appends audioinput devices to #audio-device, so any
+        // non-default option is an audio input. We can't filter on label text:
+        // Chromium's fake-device labels contain "Audio" but Firefox's
+        // enumerateDevices returns empty labels, falling back to "audioinput <id>".
+        const audioInputDevices = audioOptions.filter((option) => option !== 'Browser Default');
         expect(audioInputDevices.length).toBeGreaterThan(0);
 
         // For video devices, check that we have at least the default option
