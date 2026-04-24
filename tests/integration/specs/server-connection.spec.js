@@ -261,10 +261,13 @@ test.describe('MediaSoup Server Connection', () => {
             window.testWebSocketErrors = [];
         });
 
-        // Mock WebSocket to simulate errors more effectively
+        // Mock WebSocket to simulate errors more effectively.
+        // Must be a regular function (not an arrow) so `new WebSocket(url)` in the
+        // client code does not throw "not a constructor".
         await page.evaluate(() => {
             const OriginalWebSocket = window.WebSocket;
-            window.WebSocket = (url) => {
+            // biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be invoked with `new`
+            window.WebSocket = function (url) {
                 console.log('WebSocket constructor called with URL:', url);
                 window.testWebSocketErrors.push({
                     action: 'constructor_called',

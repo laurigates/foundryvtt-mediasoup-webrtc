@@ -32,3 +32,6 @@ tests/results/
 
 # Rust build artifacts
 server/target/
+
+# Serena MCP local state (removed from repo in #113)
+.serena/
