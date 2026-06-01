@@ -1,8 +1,5 @@
-use mediasoup_server::{Config, MediaSoupServer, SignalingMessage};
+use mediasoup_server::{Config, IncomingMessage, MediaSoupServer, OutgoingMessage};
 use serde_json::json;
-use std::time::Duration;
-use tokio::time::timeout;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[tokio::test]
 async fn test_server_startup() {
@@ -27,44 +24,78 @@ async fn test_server_startup() {
             }],
         },
     };
-    
+
     // Test that server can be created
     let server = MediaSoupServer::new(config).await;
     assert!(server.is_ok(), "Failed to create MediaSoup server");
 }
 
 #[tokio::test]
-async fn test_signaling_message_serialization() {
-    let message = SignalingMessage::request(
-        "getRouterRtpCapabilities".to_string(),
-        Some(json!({})),
-    );
-    
-    // Test serialization
-    let serialized = serde_json::to_string(&message);
-    assert!(serialized.is_ok(), "Failed to serialize signaling message");
-    
-    // Test deserialization
-    let deserialized: Result<SignalingMessage, _> = serde_json::from_str(&serialized.unwrap());
-    assert!(deserialized.is_ok(), "Failed to deserialize signaling message");
-    
-    let deserialized = deserialized.unwrap();
-    assert_eq!(deserialized.method, "getRouterRtpCapabilities");
-    assert!(deserialized.is_request());
+async fn test_incoming_message_deserialization() {
+    // The client sends a flat envelope: { type, requestId, userId, <payload...> }.
+    let raw = r#"{
+        "type": "produce",
+        "requestId": "req_3",
+        "userId": "user-1",
+        "transportId": "transport-7",
+        "kind": "audio"
+    }"#;
+
+    let message: IncomingMessage =
+        serde_json::from_str(raw).expect("Failed to deserialize incoming message");
+
+    assert_eq!(message.msg_type, "produce");
+    assert_eq!(message.request_id.as_deref(), Some("req_3"));
+    assert_eq!(message.user_id.as_deref(), Some("user-1"));
+
+    // Remaining top-level fields are captured in the flattened payload.
+    let payload = message.payload_value();
+    assert_eq!(payload["transportId"], "transport-7");
+    assert_eq!(payload["kind"], "audio");
+    // The envelope fields are not duplicated into the payload.
+    assert!(payload.get("type").is_none());
+    assert!(payload.get("requestId").is_none());
 }
 
 #[tokio::test]
-async fn test_signaling_notification() {
-    let notification = SignalingMessage::notification(
-        "newProducer".to_string(),
-        Some(json!({
-            "id": "producer-123",
+async fn test_outgoing_response_serialization() {
+    // A successful response carries the correlating requestId and a data payload.
+    let response = OutgoingMessage::response("req_3".to_string(), json!({ "id": "producer-123" }));
+    let value = serde_json::to_value(&response).expect("Failed to serialize response");
+
+    assert_eq!(value["requestId"], "req_3");
+    assert_eq!(value["data"]["id"], "producer-123");
+    // No notification or error fields leak into a response.
+    assert!(value.get("type").is_none());
+    assert!(value.get("error").is_none());
+
+    // An error response carries the error string instead of data.
+    let error = OutgoingMessage::error("req_4".to_string(), "boom".to_string());
+    let error_value = serde_json::to_value(&error).expect("Failed to serialize error");
+    assert_eq!(error_value["requestId"], "req_4");
+    assert_eq!(error_value["error"], "boom");
+    assert!(error_value.get("data").is_none());
+}
+
+#[tokio::test]
+async fn test_outgoing_notification_serialization() {
+    // Notifications use a top-level `type` plus flat fields the client reads
+    // directly (producerId, userId, kind).
+    let notification = OutgoingMessage::notification(
+        "newProducer",
+        json!({
+            "producerId": "producer-123",
             "userId": "user-456",
             "kind": "video"
-        })),
+        }),
     );
-    
-    assert!(notification.is_notification());
-    assert!(!notification.is_request());
-    assert_eq!(notification.method, "newProducer");
+
+    let value = serde_json::to_value(&notification).expect("Failed to serialize notification");
+
+    assert_eq!(value["type"], "newProducer");
+    assert_eq!(value["producerId"], "producer-123");
+    assert_eq!(value["userId"], "user-456");
+    assert_eq!(value["kind"], "video");
+    // A notification has no requestId (it does not expect a response).
+    assert!(value.get("requestId").is_none());
 }
