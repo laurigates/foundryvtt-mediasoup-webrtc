@@ -1,6 +1,5 @@
 # Changelog
 
-<<<<<<< Updated upstream
 ## [0.7.20](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v0.7.19...foundryvtt-mediasoup-webrtc-v0.7.20) (2025-07-12)
 
 
@@ -260,20 +259,6 @@
 
 * include package-lock.json for reproducible builds ([#13](https://github.com/laurigates/foundryvtt-webrtc-mediasoup/issues/13)) ([e4e0ae2](https://github.com/laurigates/foundryvtt-webrtc-mediasoup/commit/e4e0ae25ca7762145144cf333e4ff1126059eb2f))
 
-||||||| Stash base
-=======
-## Installation
-
-To install the latest version of MediaSoupVTT in FoundryVTT:
-
-1. Open FoundryVTT and go to **Game Settings → Modules**
-2. Click **Install Module**
-3. Use this manifest URL: `https://github.com/laurigates/foundryvtt-webrtc-mediasoup/releases/latest/download/module.json`
-4. Click **Install**
-
-The module will automatically download and install the latest release.
-
->>>>>>> Stashed changes
 ## [0.4.1](https://github.com/laurigates/foundryvtt-webrtc-mediasoup/compare/v0.4.0...v0.4.1) (2025-06-29)
 
 

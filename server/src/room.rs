@@ -1,6 +1,6 @@
 use crate::config::ListenIp;
 use crate::error::{MediaSoupError, Result};
-use crate::signaling::{NewProducerNotification, ProducerClosedNotification, SignalingMessage};
+use crate::signaling::OutgoingMessage;
 use dashmap::DashMap;
 use mediasoup::prelude::*;
 use serde_json::Value;
@@ -10,6 +10,15 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+/// Lowercase wire representation of a media kind ("audio" / "video"),
+/// matching the constants the FoundryVTT client compares against.
+pub fn media_kind_str(kind: MediaKind) -> &'static str {
+    match kind {
+        MediaKind::Audio => "audio",
+        MediaKind::Video => "video",
+    }
+}
+
 /// Represents a peer connection in a room
 #[derive(Debug)]
 pub struct Peer {
@@ -18,11 +27,11 @@ pub struct Peer {
     pub transports: DashMap<String, WebRtcTransport>,
     pub producers: DashMap<String, Producer>,
     pub consumers: DashMap<String, Consumer>,
-    pub message_sender: mpsc::UnboundedSender<SignalingMessage>,
+    pub message_sender: mpsc::UnboundedSender<OutgoingMessage>,
 }
 
 impl Peer {
-    pub fn new(user_id: String, message_sender: mpsc::UnboundedSender<SignalingMessage>) -> Self {
+    pub fn new(user_id: String, message_sender: mpsc::UnboundedSender<OutgoingMessage>) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             user_id,
@@ -34,7 +43,7 @@ impl Peer {
     }
     
     /// Send a message to this peer
-    pub fn send_message(&self, message: SignalingMessage) -> Result<()> {
+    pub fn send_message(&self, message: OutgoingMessage) -> Result<()> {
         self.message_sender
             .send(message)
             .map_err(|_| MediaSoupError::InvalidRequest("Peer disconnected".to_string()))?;
@@ -95,21 +104,23 @@ impl Room {
     /// Remove a peer from the room
     pub async fn remove_peer(&self, peer_id: &str) -> Result<()> {
         if let Some((_, peer)) = self.peers.remove(peer_id) {
-            // Close peer's resources
-            peer.close().await?;
-            
-            // Notify other peers about closed producers
-            for producer in peer.producers.iter() {
-                let notification = SignalingMessage::notification(
-                    "producerClosed".to_string(),
-                    Some(serde_json::to_value(ProducerClosedNotification {
-                        producer_id: producer.id().to_string(),
-                    })?),
+            // Notify other peers about this peer's producers BEFORE tearing them
+            // down. `Peer::close` clears the producer map, so collecting the ids
+            // first is required for the `producerClosed` notifications to fire at
+            // all (otherwise remaining peers' consumers hang).
+            let producer_ids: Vec<String> =
+                peer.producers.iter().map(|producer| producer.id().to_string()).collect();
+            for producer_id in producer_ids {
+                let notification = OutgoingMessage::notification(
+                    "producerClosed",
+                    serde_json::json!({ "producerId": producer_id }),
                 );
-                
                 self.broadcast_to_others(&peer.id, notification).await?;
             }
-            
+
+            // Close peer's resources
+            peer.close().await?;
+
             info!("Removed peer {} from room {}", peer_id, self.id);
         }
         
@@ -122,7 +133,7 @@ impl Room {
     }
     
     /// Broadcast a message to all peers except the sender
-    pub async fn broadcast_to_others(&self, sender_id: &str, message: SignalingMessage) -> Result<()> {
+    pub async fn broadcast_to_others(&self, sender_id: &str, message: OutgoingMessage) -> Result<()> {
         for peer in self.peers.iter() {
             if peer.id != sender_id {
                 if let Err(e) = peer.send_message(message.clone()) {
@@ -134,7 +145,7 @@ impl Room {
     }
     
     /// Broadcast a message to all peers
-    pub async fn broadcast_to_all(&self, message: SignalingMessage) -> Result<()> {
+    pub async fn broadcast_to_all(&self, message: OutgoingMessage) -> Result<()> {
         for peer in self.peers.iter() {
             if let Err(e) = peer.send_message(message.clone()) {
                 warn!("Failed to send message to peer {}: {}", peer.id, e);
@@ -225,16 +236,17 @@ impl Room {
         
         info!("Created producer {} for peer {} in room {}", producer_id, peer_id, self.id);
         
-        // Notify other peers about the new producer
-        let notification = SignalingMessage::notification(
-            "newProducer".to_string(),
-            Some(serde_json::to_value(NewProducerNotification {
-                id: producer_id,
-                user_id: peer.user_id.clone(),
-                kind: format!("{:?}", kind),
-            })?),
+        // Notify other peers about the new producer. Fields are flat and the
+        // kind is lowercased ("audio"/"video") to match the client.
+        let notification = OutgoingMessage::notification(
+            "newProducer",
+            serde_json::json!({
+                "producerId": producer_id,
+                "userId": peer.user_id.clone(),
+                "kind": media_kind_str(kind),
+            }),
         );
-        
+
         self.broadcast_to_others(&peer.id, notification).await?;
         
         Ok(producer)
@@ -271,8 +283,14 @@ impl Room {
             return Err(MediaSoupError::Consumer("Cannot consume producer".to_string()));
         }
         
+        // Create the consumer paused, as recommended by mediasoup, so the client
+        // can be ready before media flows. The client resumes it via the
+        // `consumerResume` request once the local consumer is set up.
+        let mut consumer_options = ConsumerOptions::new(producer.id(), rtp_capabilities);
+        consumer_options.paused = true;
+
         let consumer = transport
-            .consume(ConsumerOptions::new(producer.id(), rtp_capabilities))
+            .consume(consumer_options)
             .await
             .map_err(|e| MediaSoupError::Consumer(e.to_string()))?;
         
@@ -288,7 +306,7 @@ impl Room {
     pub fn get_rtp_capabilities(&self) -> RtpCapabilitiesFinalized {
         self.router.rtp_capabilities()
     }
-    
+
     /// Define media codecs for the router
     fn media_codecs() -> Vec<RtpCodecCapability> {
         vec![

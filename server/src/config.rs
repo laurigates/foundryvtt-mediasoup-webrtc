@@ -19,6 +19,22 @@ pub struct Config {
     
     /// WebRTC transport settings
     pub webrtc: WebRtcConfig,
+
+    /// Shared secret required from clients to connect. When `None`, the server
+    /// runs unauthenticated (development only) and logs a warning. See #118.
+    pub auth_token: Option<String>,
+
+    /// Optional native TLS termination. When set, the server accepts `wss://`
+    /// directly; when `None`, it serves plain `ws://` and expects TLS to be
+    /// terminated by a reverse proxy.
+    pub tls: Option<TlsConfig>,
+}
+
+/// Paths to the PEM-encoded certificate chain and private key for native TLS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,8 +131,20 @@ impl Config {
                     }
                 ],
             },
+
+            auth_token: std::env::var("MEDIASOUP_AUTH_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
+
+            tls: match (
+                std::env::var("MEDIASOUP_TLS_CERT").ok().filter(|s| !s.is_empty()),
+                std::env::var("MEDIASOUP_TLS_KEY").ok().filter(|s| !s.is_empty()),
+            ) {
+                (Some(cert_path), Some(key_path)) => Some(TlsConfig { cert_path, key_path }),
+                _ => None,
+            },
         };
-        
+
         Ok(config)
     }
     

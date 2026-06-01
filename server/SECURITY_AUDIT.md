@@ -1,5 +1,37 @@
 # Security Audit Report
 
+> **Scope note:** Most of this document covers *dependency* advisories only. The
+> application-level security posture is summarized below and should not be
+> assumed to be "hardened" beyond what is listed here (see #118).
+
+## Application Security Posture
+
+### Authentication (shared-secret gate)
+- The server requires an `authenticate` handshake as the first WebSocket frame.
+  Clients must present the shared secret configured via `MEDIASOUP_AUTH_TOKEN`
+  (compared in constant time). When the variable is unset, the server runs
+  **unauthenticated** and logs a warning at startup — do not expose it that way.
+- The authenticated peer identity is the FoundryVTT `userId` supplied by the
+  client. Because the token is provisioned as a *world* setting (readable by all
+  players), this gates outside connections but does **not** prevent one
+  authenticated player from claiming another player's `userId`. True per-user
+  validation needs a Foundry-side relay that mints signed per-user tokens; that
+  is tracked as follow-up work. Only `verify_token`/the handshake need to change
+  to adopt it.
+
+### Transport security (TLS)
+- The server supports **native TLS** (`wss://`) when `MEDIASOUP_TLS_CERT` and
+  `MEDIASOUP_TLS_KEY` point at PEM files; otherwise it serves plain `ws://` and
+  expects TLS to be terminated by a reverse proxy (nginx profile in
+  `docker-compose.yml`). One of these is required in any real deployment because
+  browsers block mixed-content `ws://` from an `https://` Foundry page.
+
+### Known gaps (not yet addressed)
+- **DoS / resource limits:** no per-IP connection cap, no per-peer
+  transport/producer/consumer limits, unbounded signaling payload sizes. Tracked
+  separately.
+- **Per-user spoofing:** see the relay note above.
+
 ## Updated Dependencies (2025-09-08)
 
 ### Major Version Updates
