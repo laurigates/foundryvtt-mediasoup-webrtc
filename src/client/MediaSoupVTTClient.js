@@ -829,25 +829,8 @@ export class MediaSoupVTTClient {
             return;
         }
 
-        if (!appData || !appData.rtpParameters) {
-            const errorMsg = `Cannot consume producer ${producerId}: Missing rtpParameters in appData from server notification.`;
-            log(errorMsg, 'error');
-            ui.notifications.error(
-                'MediaSoup: Failed to consume media stream - server configuration error'
-            );
-            return;
-        }
-
-        if (
-            !this.isConnected ||
-            !this.recvTransport ||
-            !this.device.canConsume({ producerId, kind, rtpParameters: appData.rtpParameters })
-        ) {
-            const errorMsg = `Cannot consume new producer ${producerId}: Not ready or device cannot consume. Device consumable check failed.`;
-            log(errorMsg, 'warn');
-            ui.notifications.warn(
-                `MediaSoup: Unable to receive ${kind} stream from user - device not compatible`
-            );
+        if (!this.isConnected || !this.recvTransport || !this.device) {
+            log(`Cannot consume new producer ${producerId}: receive transport not ready.`, 'warn');
             return;
         }
         log(
@@ -856,8 +839,13 @@ export class MediaSoupVTTClient {
         );
 
         try {
+            // Ask the server to create a consumer. The server validates that our
+            // device can consume this producer (router.canConsume) using the
+            // rtpCapabilities we send, then returns the consumer parameters
+            // (including its own rtpParameters) needed to build the local consumer.
             const consumerParams = await this._sendSignalingRequest({
                 type: SIG_MSG_TYPES.CONSUME,
+                transportId: this.recvTransport.id,
                 producerId: producerId,
                 rtpCapabilities: this.device.rtpCapabilities,
             });
@@ -905,13 +893,6 @@ export class MediaSoupVTTClient {
             }
             this.remoteUserStreams.set(userId, userStreams);
 
-            if (consumerParams.producerPaused) {
-                log(
-                    `Remote producer ${producerId} is paused. Pausing consumer ${consumer.id}.`,
-                    'info'
-                );
-            }
-
             consumer.on('trackended', () => {
                 log(`Remote track ended for consumer ${consumer.id}.`, 'warn');
                 this._handleRemoteProducerClosed(consumer.producerId);
@@ -920,6 +901,19 @@ export class MediaSoupVTTClient {
                 log(`Consumer transport closed for consumer ${consumer.id}.`, 'warn');
                 this._handleRemoteProducerClosed(consumer.producerId);
             });
+
+            // The server creates consumers paused (mediasoup recommendation).
+            // Resume now that the local consumer and its media element are ready,
+            // otherwise no media ever flows and audio/video stays muted/black.
+            try {
+                await this._sendSignalingRequest({
+                    type: SIG_MSG_TYPES.CONSUMER_RESUME,
+                    consumerId: consumer.id,
+                });
+                log(`Resumed consumer ${consumer.id} on server.`, 'debug');
+            } catch (resumeError) {
+                log(`Failed to resume consumer ${consumer.id}: ${resumeError.message}`, 'warn');
+            }
 
             ui.players.render(true);
         } catch (error) {

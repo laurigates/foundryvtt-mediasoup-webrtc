@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::{MediaSoupError, Result};
-use crate::room::{Peer, Room};
+use crate::room::{media_kind_str, Peer, Room};
 use crate::signaling::*;
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
@@ -64,7 +64,7 @@ impl MediaSoupServer {
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
         
         // Create a channel for sending messages to this peer
-        let (message_sender, mut message_receiver) = mpsc::unbounded_channel::<SignalingMessage>();
+        let (message_sender, mut message_receiver) = mpsc::unbounded_channel::<OutgoingMessage>();
         
         // Extract user ID from connection (for now use a UUID, in production this would come from authentication)
         let user_id = Uuid::new_v4().to_string();
@@ -149,86 +149,58 @@ impl MediaSoupServer {
         peer: &Arc<Peer>,
         room: &Arc<Room>,
     ) -> Result<()> {
-        let message: SignalingMessage = serde_json::from_str(text)?;
-        debug!("Received message: {} from peer {}", message.method, peer.id);
-        
-        let response = match message.method.as_str() {
-            "getRouterRtpCapabilities" => {
-                self.handle_get_router_rtp_capabilities(&message, room).await
-            }
+        let message: IncomingMessage = serde_json::from_str(text)?;
+        debug!("Received message: {} from peer {}", message.msg_type, peer.id);
+
+        let result: Result<Value> = match message.msg_type.as_str() {
+            "getRouterRtpCapabilities" => self.handle_get_router_rtp_capabilities(room).await,
             "createWebRtcTransport" => {
                 self.handle_create_webrtc_transport(&message, peer, room).await
             }
-            "connectTransport" => {
-                self.handle_connect_transport(&message, peer).await
-            }
-            "produce" => {
-                self.handle_produce(&message, peer, room).await
-            }
-            "consume" => {
-                self.handle_consume(&message, peer, room).await
-            }
-            "pauseProducer" => {
-                self.handle_pause_producer(&message, peer).await
-            }
-            "resumeProducer" => {
-                self.handle_resume_producer(&message, peer).await
-            }
-            _ => {
-                warn!("Unknown method: {}", message.method);
-                Ok(message.to_response(None, Some(format!("Unknown method: {}", message.method))))
-            }
+            "connectTransport" => self.handle_connect_transport(&message, peer).await,
+            "produce" => self.handle_produce(&message, peer, room).await,
+            "consume" => self.handle_consume(&message, peer, room).await,
+            "consumerResume" => self.handle_resume_consumer(&message, peer).await,
+            "pauseProducer" => self.handle_pause_producer(&message, peer).await,
+            "resumeProducer" => self.handle_resume_producer(&message, peer).await,
+            other => Err(MediaSoupError::InvalidRequest(format!("Unknown method: {other}"))),
         };
-        
-        // Send response if this was a request
-        if message.is_request() {
-            let response = response?;
-            peer.send_message(SignalingMessage {
-                id: Some(response.id),
-                method: "response".to_string(),
-                data: if let Some(error) = response.error {
-                    Some(serde_json::json!({ "error": error }))
-                } else {
-                    response.response
-                },
-            })?;
+
+        // Reply only if the client correlated this with a requestId.
+        if let Some(request_id) = message.request_id.clone() {
+            let outgoing = match result {
+                Ok(data) => OutgoingMessage::response(request_id, data),
+                Err(e) => {
+                    warn!("Request '{}' failed: {}", message.msg_type, e);
+                    OutgoingMessage::error(request_id, e.to_string())
+                }
+            };
+            peer.send_message(outgoing)?;
+        } else if let Err(e) = result {
+            error!("Error handling '{}' (no requestId): {}", message.msg_type, e);
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle getRouterRtpCapabilities request
-    async fn handle_get_router_rtp_capabilities(
-        &self,
-        message: &SignalingMessage,
-        room: &Arc<Room>,
-    ) -> Result<SignalingResponse> {
+    async fn handle_get_router_rtp_capabilities(&self, room: &Arc<Room>) -> Result<Value> {
         let capabilities = room.get_rtp_capabilities();
-        let response_data = serde_json::to_value(capabilities)?;
-        
-        Ok(message.to_response(Some(response_data), None))
+        Ok(serde_json::to_value(capabilities)?)
     }
-    
+
     /// Handle createWebRtcTransport request
     async fn handle_create_webrtc_transport(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
         room: &Arc<Room>,
-    ) -> Result<SignalingResponse> {
-        let data: CreateWebRtcTransportData = if let Some(data) = &message.data {
-            serde_json::from_value(data.clone())?
-        } else {
-            CreateWebRtcTransportData {
-                producing: None,
-                consuming: None,
-                sctp_capabilities: None,
-            }
-        };
-        
+    ) -> Result<Value> {
+        let data: CreateWebRtcTransportData = serde_json::from_value(message.payload_value())?;
+
         // Use config listen IPs directly
         let listen_ips = self.config.webrtc.listen_ips.clone();
-        
+
         let transport = room.create_webrtc_transport(
             &peer.id,
             listen_ips,
@@ -237,58 +209,57 @@ impl MediaSoupServer {
             true,  // prefer_udp
             data.sctp_capabilities.is_some(), // enable_sctp
         ).await?;
-        
-        let response_data = serde_json::to_value(TransportCreatedResponse {
+
+        Ok(serde_json::to_value(TransportCreatedResponse {
             id: transport.id().to_string(),
             ice_parameters: serde_json::to_value(transport.ice_parameters())?,
             ice_candidates: serde_json::to_value(transport.ice_candidates())?,
             dtls_parameters: serde_json::to_value(transport.dtls_parameters())?,
-            sctp_parameters: transport.sctp_parameters().map(|p| serde_json::to_value(p)).transpose()?,
-        })?;
-        
-        Ok(message.to_response(Some(response_data), None))
+            sctp_parameters: transport.sctp_parameters().map(serde_json::to_value).transpose()?,
+        })?)
     }
-    
+
     /// Handle connectTransport request
     async fn handle_connect_transport(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
-    ) -> Result<SignalingResponse> {
-        let data: ConnectTransportData = serde_json::from_value(
-            message.data.clone().ok_or_else(|| MediaSoupError::InvalidRequest("Missing data".to_string()))?
-        )?;
-        
-        let transport = peer.transports.get(&data.transport_id)
+    ) -> Result<Value> {
+        let data: ConnectTransportData = serde_json::from_value(message.payload_value())?;
+
+        // Clone the (Arc-backed) transport handle and drop the DashMap guard
+        // before awaiting, so we never hold a shard lock across `.await`.
+        let transport = peer
+            .transports
+            .get(&data.transport_id)
+            .map(|t| t.clone())
             .ok_or_else(|| MediaSoupError::TransportNotFound(data.transport_id.clone()))?;
-        
+
         let dtls_parameters: DtlsParameters = serde_json::from_value(data.dtls_parameters)?;
-        
+
         transport.connect(WebRtcTransportRemoteParameters { dtls_parameters }).await
             .map_err(|e| MediaSoupError::Transport(e.to_string()))?;
-        
-        Ok(message.to_response(Some(serde_json::json!({})), None))
+
+        Ok(serde_json::json!({}))
     }
-    
+
     /// Handle produce request
     async fn handle_produce(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
         room: &Arc<Room>,
-    ) -> Result<SignalingResponse> {
-        let data: ProduceData = serde_json::from_value(
-            message.data.clone().ok_or_else(|| MediaSoupError::InvalidRequest("Missing data".to_string()))?
-        )?;
-        
+    ) -> Result<Value> {
+        let data: ProduceData = serde_json::from_value(message.payload_value())?;
+
         let kind = match data.kind.as_str() {
             "audio" => MediaKind::Audio,
             "video" => MediaKind::Video,
-            _ => return Err(MediaSoupError::InvalidRequest(format!("Invalid media kind: {}", data.kind))),
+            other => return Err(MediaSoupError::InvalidRequest(format!("Invalid media kind: {other}"))),
         };
-        
+
         let rtp_parameters: RtpParameters = serde_json::from_value(data.rtp_parameters)?;
-        
+
         let producer = room.create_producer(
             &peer.id,
             &data.transport_id,
@@ -296,82 +267,97 @@ impl MediaSoupServer {
             rtp_parameters,
             data.app_data,
         ).await?;
-        
-        let response_data = serde_json::to_value(ProducedResponse {
+
+        Ok(serde_json::to_value(ProducedResponse {
             id: producer.id().to_string(),
-        })?;
-        
-        Ok(message.to_response(Some(response_data), None))
+        })?)
     }
-    
+
     /// Handle consume request
     async fn handle_consume(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
         room: &Arc<Room>,
-    ) -> Result<SignalingResponse> {
-        let data: ConsumeData = serde_json::from_value(
-            message.data.clone().ok_or_else(|| MediaSoupError::InvalidRequest("Missing data".to_string()))?
-        )?;
-        
+    ) -> Result<Value> {
+        let data: ConsumeData = serde_json::from_value(message.payload_value())?;
+
         let rtp_capabilities: RtpCapabilities = serde_json::from_value(data.rtp_capabilities)?;
-        
+
         let consumer = room.create_consumer(
             &peer.id,
             &data.transport_id,
             &data.producer_id,
             rtp_capabilities,
         ).await?;
-        
-        let response_data = serde_json::to_value(ConsumedResponse {
+
+        Ok(serde_json::to_value(ConsumedResponse {
             id: consumer.id().to_string(),
             producer_id: data.producer_id,
-            kind: format!("{:?}", consumer.kind()),
+            kind: media_kind_str(consumer.kind()).to_string(),
             rtp_parameters: serde_json::to_value(consumer.rtp_parameters())?,
-        })?;
-        
-        Ok(message.to_response(Some(response_data), None))
+            producer_paused: consumer.producer_paused(),
+        })?)
     }
-    
+
+    /// Handle consumerResume request (resume a consumer created paused)
+    async fn handle_resume_consumer(
+        &self,
+        message: &IncomingMessage,
+        peer: &Arc<Peer>,
+    ) -> Result<Value> {
+        let consumer_id = message.payload.get("consumerId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| MediaSoupError::InvalidRequest("Missing consumerId".to_string()))?;
+
+        let consumer = peer.consumers.get(consumer_id)
+            .map(|c| c.clone())
+            .ok_or_else(|| MediaSoupError::ConsumerNotFound(consumer_id.to_string()))?;
+
+        consumer.resume().await
+            .map_err(|e| MediaSoupError::Consumer(e.to_string()))?;
+
+        Ok(serde_json::json!({}))
+    }
+
     /// Handle pauseProducer request
     async fn handle_pause_producer(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
-    ) -> Result<SignalingResponse> {
-        let data: Value = message.data.clone().ok_or_else(|| MediaSoupError::InvalidRequest("Missing data".to_string()))?;
-        let producer_id = data.get("producerId")
+    ) -> Result<Value> {
+        let producer_id = message.payload.get("producerId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
-        
+
         let producer = peer.producers.get(producer_id)
+            .map(|p| p.clone())
             .ok_or_else(|| MediaSoupError::ProducerNotFound(producer_id.to_string()))?;
-        
+
         producer.pause().await
             .map_err(|e| MediaSoupError::Producer(e.to_string()))?;
-        
-        Ok(message.to_response(Some(serde_json::json!({})), None))
+
+        Ok(serde_json::json!({}))
     }
-    
+
     /// Handle resumeProducer request
     async fn handle_resume_producer(
         &self,
-        message: &SignalingMessage,
+        message: &IncomingMessage,
         peer: &Arc<Peer>,
-    ) -> Result<SignalingResponse> {
-        let data: Value = message.data.clone().ok_or_else(|| MediaSoupError::InvalidRequest("Missing data".to_string()))?;
-        let producer_id = data.get("producerId")
+    ) -> Result<Value> {
+        let producer_id = message.payload.get("producerId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
-        
+
         let producer = peer.producers.get(producer_id)
+            .map(|p| p.clone())
             .ok_or_else(|| MediaSoupError::ProducerNotFound(producer_id.to_string()))?;
-        
+
         producer.resume().await
             .map_err(|e| MediaSoupError::Producer(e.to_string()))?;
-        
-        Ok(message.to_response(Some(serde_json::json!({})), None))
+
+        Ok(serde_json::json!({}))
     }
     
     /// Get or create a room
