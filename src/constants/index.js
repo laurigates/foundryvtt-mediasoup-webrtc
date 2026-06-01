@@ -8,6 +8,7 @@ export const LOG_PREFIX = `${MODULE_TITLE} |`;
 
 // Settings keys
 export const SETTING_MEDIASOUP_URL = 'mediaSoupServerUrl';
+export const SETTING_MEDIASOUP_AUTH_TOKEN = 'mediaSoupAuthToken';
 export const SETTING_AUTO_CONNECT = 'autoConnect';
 export const SETTING_DEFAULT_AUDIO_DEVICE = 'defaultAudioDevice';
 export const SETTING_DEFAULT_VIDEO_DEVICE = 'defaultVideoDevice';
@@ -27,6 +28,7 @@ export const SIGNALING_REQUEST_TIMEOUT_MS = 10000;
 
 // Signaling message types
 export const SIG_MSG_TYPES = {
+    AUTHENTICATE: 'authenticate',
     GET_ROUTER_RTP_CAPABILITIES: 'getRouterRtpCapabilities',
     ROUTER_RTP_CAPABILITIES: 'routerRtpCapabilities',
     CREATE_WEBRTC_TRANSPORT: 'createWebRtcTransport',

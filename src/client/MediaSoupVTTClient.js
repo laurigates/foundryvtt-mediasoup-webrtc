@@ -12,6 +12,7 @@ import {
     MODULE_TITLE,
     SETTING_DEFAULT_AUDIO_DEVICE,
     SETTING_DEFAULT_VIDEO_DEVICE,
+    SETTING_MEDIASOUP_AUTH_TOKEN,
     SETTING_MEDIASOUP_URL,
     SIG_MSG_TYPES,
     SIGNALING_REQUEST_TIMEOUT_MS,
@@ -266,6 +267,23 @@ export class MediaSoupVTTClient {
         try {
             log('Initializing mediasoup-client Device...');
             this.device = new window.mediasoupClient.Device();
+
+            // Authenticate first. The server requires this as the opening frame
+            // and gates all other signaling behind it (see #118). The token is a
+            // shared secret configured by the GM; userId is attached automatically
+            // by _sendSignalingRequest.
+            let authToken = '';
+            try {
+                authToken = game?.settings?.get(MODULE_ID, SETTING_MEDIASOUP_AUTH_TOKEN) || '';
+            } catch (settingError) {
+                log(`Could not read auth token setting: ${settingError.message}`, 'warn');
+            }
+            await this._sendSignalingRequest({
+                type: SIG_MSG_TYPES.AUTHENTICATE,
+                token: authToken,
+            });
+            log('Authenticated with MediaSoup server.', 'debug');
+
             const routerRtpCapabilities = await this._sendSignalingRequest({
                 type: SIG_MSG_TYPES.GET_ROUTER_RTP_CAPABILITIES,
             });

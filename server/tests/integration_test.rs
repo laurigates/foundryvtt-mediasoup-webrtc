@@ -23,6 +23,8 @@ async fn test_server_startup() {
                 announced_ip: None,
             }],
         },
+        auth_token: None,
+        tls: None,
     };
 
     // Test that server can be created

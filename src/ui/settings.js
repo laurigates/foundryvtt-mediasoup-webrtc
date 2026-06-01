@@ -9,6 +9,7 @@ import {
     SETTING_DEBUG_LOGGING,
     SETTING_DEFAULT_AUDIO_DEVICE,
     SETTING_DEFAULT_VIDEO_DEVICE,
+    SETTING_MEDIASOUP_AUTH_TOKEN,
     SETTING_MEDIASOUP_URL,
 } from '../constants/index.js';
 import { log } from '../utils/logger.js';
@@ -41,6 +42,25 @@ export function registerSettings() {
                         `${MODULE_TITLE}: Server URL changed. Disconnected. Please reconnect manually.`
                     );
                 }
+            }
+        },
+    });
+
+    game.settings.register(MODULE_ID, SETTING_MEDIASOUP_AUTH_TOKEN, {
+        name: 'MediaSoup Server Auth Token',
+        hint: 'Shared secret required by the MediaSoup server (matches its MEDIASOUP_AUTH_TOKEN). Leave blank if the server runs without authentication. Note: stored as a world setting, so all players in the world can read it.',
+        scope: 'world',
+        config: true,
+        type: String,
+        default: '',
+        onChange: (value) => {
+            log(`MediaSoup auth token changed (length: ${value ? value.length : 0})`);
+            const clientInstance = window.MediaSoupVTT_Client;
+            if (clientInstance && (clientInstance.isConnected || clientInstance.isConnecting)) {
+                clientInstance.disconnect();
+                ui.notifications?.info(
+                    `${MODULE_TITLE}: Auth token changed. Disconnected. Please reconnect manually.`
+                );
             }
         },
     });

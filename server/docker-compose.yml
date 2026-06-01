@@ -13,6 +13,13 @@ services:
       - MEDIASOUP_LOG_TAGS=info,ice,dtls,rtp,rtcp
       - MEDIASOUP_RTC_MIN_PORT=10000
       - MEDIASOUP_RTC_MAX_PORT=10100
+      # Shared secret clients must present to connect (see #118). Without it the
+      # server runs UNAUTHENTICATED. Set the same value in the module settings.
+      - MEDIASOUP_AUTH_TOKEN=${MEDIASOUP_AUTH_TOKEN:-}
+      # Optional native TLS (wss://). Point these at mounted PEM files to let the
+      # server terminate TLS itself instead of using the nginx reverse proxy.
+      # - MEDIASOUP_TLS_CERT=/app/tls/fullchain.pem
+      # - MEDIASOUP_TLS_KEY=/app/tls/privkey.pem
       # Uncomment and set for NAT/public deployment
       # - MEDIASOUP_ANNOUNCED_IP=your-public-ip
     restart: unless-stopped

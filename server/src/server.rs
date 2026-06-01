@@ -1,8 +1,9 @@
-use crate::config::Config;
+use crate::config::{Config, TlsConfig};
 use crate::error::{MediaSoupError, Result};
 use crate::room::{media_kind_str, Peer, Room};
 use crate::signaling::*;
 use dashmap::DashMap;
+use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use mediasoup::prelude::*;
 use mediasoup::worker_manager::WorkerManager;
@@ -10,11 +11,83 @@ use mediasoup::worker::WorkerSettings;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+/// A stream usable as the transport under a WebSocket connection (plain TCP or
+/// a TLS-wrapped TCP stream).
+trait IoStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> IoStream for T {}
+
+/// Serialize and send a single signaling frame directly over a WebSocket sink
+/// (used during the pre-peer authentication handshake).
+async fn send_frame(
+    ws_sender: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
+    message: OutgoingMessage,
+) -> Result<()> {
+    let json = serde_json::to_string(&message)?;
+    ws_sender
+        .send(Message::Text(json.into()))
+        .await
+        .map_err(MediaSoupError::from)
+}
+
+/// Length-checked, constant-time byte comparison (avoids early-exit timing
+/// leaks on the shared secret).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Load a rustls `TlsAcceptor` from PEM certificate-chain and private-key files.
+fn load_tls_acceptor(tls: &TlsConfig) -> Result<TlsAcceptor> {
+    let cert_bytes = std::fs::read(&tls.cert_path).map_err(|e| {
+        MediaSoupError::Config(format!("Failed to read TLS cert {}: {}", tls.cert_path, e))
+    })?;
+    let key_bytes = std::fs::read(&tls.key_path).map_err(|e| {
+        MediaSoupError::Config(format!("Failed to read TLS key {}: {}", tls.key_path, e))
+    })?;
+
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_bytes.as_slice())
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| MediaSoupError::Config(format!("Invalid TLS certificate: {e}")))?;
+    if certs.is_empty() {
+        return Err(MediaSoupError::Config(format!(
+            "No certificates found in {}",
+            tls.cert_path
+        )));
+    }
+
+    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_bytes.as_slice())
+        .map_err(|e| MediaSoupError::Config(format!("Invalid TLS private key: {e}")))?
+        .ok_or_else(|| {
+            MediaSoupError::Config(format!("No private key found in {}", tls.key_path))
+        })?;
+
+    let server_config = RustlsServerConfig::builder_with_provider(Arc::new(
+        tokio_rustls::rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| MediaSoupError::Config(format!("Failed to select TLS protocol versions: {e}")))?
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .map_err(|e| MediaSoupError::Config(format!("Failed to build TLS config: {e}")))?;
+
+    Ok(TlsAcceptor::from(Arc::new(server_config)))
+}
 
 /// Main MediaSoup server
 pub struct MediaSoupServer {
@@ -39,47 +112,87 @@ impl MediaSoupServer {
     pub async fn run(self) -> Result<()> {
         let listener = TcpListener::bind(&self.config.listen_addr).await
             .map_err(|e| MediaSoupError::Config(format!("Failed to bind to {}: {}", self.config.listen_addr, e)))?;
-        
+
+        // Build an optional TLS acceptor for native wss:// termination.
+        let tls_acceptor = match &self.config.tls {
+            Some(tls) => {
+                let acceptor = load_tls_acceptor(tls)?;
+                info!("Native TLS enabled (wss://) using cert {}", tls.cert_path);
+                Some(acceptor)
+            }
+            None => {
+                info!("Native TLS disabled; serving ws:// (terminate TLS at a reverse proxy for browsers)");
+                None
+            }
+        };
+
+        if self.config.auth_token.is_none() {
+            warn!(
+                "MEDIASOUP_AUTH_TOKEN is not set: the server is UNAUTHENTICATED. \
+                 Set a shared secret before exposing it to a network."
+            );
+        }
+
         info!("WebSocket server listening on {}", self.config.listen_addr);
-        
+
         let server = Arc::new(self);
-        
+
         while let Ok((stream, addr)) = listener.accept().await {
             let server_clone = server.clone();
+            let acceptor = tls_acceptor.clone();
             tokio::spawn(async move {
-                if let Err(e) = server_clone.handle_connection(stream, addr).await {
+                let result = match acceptor {
+                    Some(acceptor) => match acceptor.accept(stream).await {
+                        Ok(tls_stream) => server_clone.handle_connection(tls_stream, addr).await,
+                        Err(e) => {
+                            error!("TLS handshake failed from {}: {}", addr, e);
+                            return;
+                        }
+                    },
+                    None => server_clone.handle_connection(stream, addr).await,
+                };
+                if let Err(e) = result {
                     error!("Error handling connection from {}: {}", addr, e);
                 }
             });
         }
-        
+
         Ok(())
     }
-    
-    /// Handle a new WebSocket connection
-    async fn handle_connection(&self, stream: TcpStream, addr: SocketAddr) -> Result<()> {
+
+    /// Handle a new WebSocket connection (over plain TCP or TLS).
+    async fn handle_connection<S: IoStream>(&self, stream: S, addr: SocketAddr) -> Result<()> {
         info!("New connection from {}", addr);
-        
+
         let ws_stream = accept_async(stream).await?;
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-        
+
+        // Authenticate before allocating any room/peer resources. On failure we
+        // reply with an error and drop the connection (see #118).
+        let user_id = match self.authenticate(&mut ws_receiver, &mut ws_sender).await {
+            Ok(user_id) => user_id,
+            Err(e) => {
+                warn!("Authentication failed for {}: {}", addr, e);
+                return Err(e);
+            }
+        };
+
         // Create a channel for sending messages to this peer
         let (message_sender, mut message_receiver) = mpsc::unbounded_channel::<OutgoingMessage>();
-        
-        // Extract user ID from connection (for now use a UUID, in production this would come from authentication)
-        let user_id = Uuid::new_v4().to_string();
+
+        // Identity is the authenticated FoundryVTT user id.
         let peer = Arc::new(Peer::new(user_id, message_sender));
-        
+
         // Get or create a default room (in production, this would be based on authentication/routing)
         let room_id = "default".to_string();
         let room = self.get_or_create_room(&room_id).await?;
-        
+
         // Add peer to room
         room.add_peer(peer.clone()).await?;
-        
+
         let peer_id = peer.id.clone();
         let room_clone = room.clone();
-        
+
         // Spawn task to handle outgoing messages
         let outgoing_task = {
             tokio::spawn(async move {
@@ -91,7 +204,7 @@ impl MediaSoupServer {
                             continue;
                         }
                     };
-                    
+
                     if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
                         error!("Failed to send message: {}", e);
                         break;
@@ -99,24 +212,104 @@ impl MediaSoupServer {
                 }
             })
         };
-        
+
         // Handle incoming messages
         let incoming_result = self.handle_incoming_messages(&mut ws_receiver, peer.clone(), room.clone()).await;
-        
+
         // Cleanup
         outgoing_task.abort();
         if let Err(e) = room_clone.remove_peer(&peer_id).await {
             error!("Failed to remove peer {}: {}", peer_id, e);
         }
-        
+
         info!("Connection from {} closed", addr);
         incoming_result
     }
-    
-    /// Handle incoming WebSocket messages
-    async fn handle_incoming_messages(
+
+    /// Perform the authentication handshake. The client's first frame must be an
+    /// `authenticate` request carrying the shared `token` (when one is
+    /// configured) and `userId`. Returns the authenticated user id.
+    ///
+    /// This is a deployment-level shared-secret gate (#118). True per-user
+    /// FoundryVTT session validation needs a Foundry-side relay to mint signed
+    /// per-user tokens; that is tracked as a follow-up. Once such a relay exists,
+    /// only `verify_token` below needs to change.
+    async fn authenticate<S: IoStream>(
         &self,
-        ws_receiver: &mut futures_util::stream::SplitStream<WebSocketStream<TcpStream>>,
+        ws_receiver: &mut SplitStream<WebSocketStream<S>>,
+        ws_sender: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
+    ) -> Result<String> {
+        while let Some(frame) = ws_receiver.next().await {
+            let frame = frame?;
+            let text = match frame {
+                Message::Text(text) => text,
+                Message::Close(_) => {
+                    return Err(MediaSoupError::InvalidRequest("Closed before auth".to_string()))
+                }
+                _ => continue, // ignore pings/binary before auth
+            };
+
+            let message: IncomingMessage = serde_json::from_str(&text)?;
+            if message.msg_type != "authenticate" {
+                let err = "Authentication required: first message must be 'authenticate'";
+                if let Some(request_id) = message.request_id.clone() {
+                    send_frame(ws_sender, OutgoingMessage::error(request_id, err.to_string())).await?;
+                }
+                return Err(MediaSoupError::InvalidRequest(err.to_string()));
+            }
+
+            let provided = message
+                .payload
+                .get("token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if let Err(e) = self.verify_token(provided) {
+                if let Some(request_id) = message.request_id.clone() {
+                    send_frame(ws_sender, OutgoingMessage::error(request_id, e.to_string())).await?;
+                }
+                return Err(e);
+            }
+
+            // Identity is the client-supplied FoundryVTT user id; fall back to a
+            // random id if absent so peers remain distinguishable.
+            let user_id = message
+                .user_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+            if let Some(request_id) = message.request_id.clone() {
+                send_frame(ws_sender, OutgoingMessage::response(request_id, serde_json::json!({})))
+                    .await?;
+            }
+
+            debug!("Authenticated user {}", user_id);
+            return Ok(user_id);
+        }
+
+        Err(MediaSoupError::InvalidRequest("Connection closed before authentication".to_string()))
+    }
+
+    /// Validate a client-provided token against the configured shared secret
+    /// using a length-checked, constant-time comparison.
+    fn verify_token(&self, provided: &str) -> Result<()> {
+        match &self.config.auth_token {
+            None => Ok(()), // unauthenticated mode (warned at startup)
+            Some(expected) => {
+                if constant_time_eq(expected.as_bytes(), provided.as_bytes()) {
+                    Ok(())
+                } else {
+                    Err(MediaSoupError::InvalidRequest("Invalid authentication token".to_string()))
+                }
+            }
+        }
+    }
+
+    /// Handle incoming WebSocket messages
+    async fn handle_incoming_messages<S: IoStream>(
+        &self,
+        ws_receiver: &mut SplitStream<WebSocketStream<S>>,
         peer: Arc<Peer>,
         room: Arc<Room>,
     ) -> Result<()> {
@@ -153,6 +346,9 @@ impl MediaSoupServer {
         debug!("Received message: {} from peer {}", message.msg_type, peer.id);
 
         let result: Result<Value> = match message.msg_type.as_str() {
+            // Authentication already happened during the handshake; a stray
+            // re-auth is a harmless no-op.
+            "authenticate" => Ok(serde_json::json!({})),
             "getRouterRtpCapabilities" => self.handle_get_router_rtp_capabilities(room).await,
             "createWebRtcTransport" => {
                 self.handle_create_webrtc_transport(&message, peer, room).await
@@ -440,4 +636,21 @@ impl CustomWorkerManager {
         }
     }
     */
+}
+#[cfg(test)]
+mod tests {
+    use super::constant_time_eq;
+
+    #[test]
+    fn constant_time_eq_matches_identical_secrets() {
+        assert!(constant_time_eq(b"s3cret-token", b"s3cret-token"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_mismatches_and_length_differences() {
+        assert!(!constant_time_eq(b"s3cret-token", b"wrong-token!"));
+        assert!(!constant_time_eq(b"short", b"longer-secret"));
+        assert!(!constant_time_eq(b"token", b""));
+    }
 }
