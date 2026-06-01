@@ -7,7 +7,7 @@ use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use mediasoup::prelude::*;
 use mediasoup::worker_manager::WorkerManager;
-use mediasoup::worker::WorkerSettings;
+use mediasoup::worker::{WorkerLogLevel, WorkerLogTag, WorkerSettings};
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -221,6 +221,8 @@ impl MediaSoupServer {
         if let Err(e) = room_clone.remove_peer(&peer_id).await {
             error!("Failed to remove peer {}: {}", peer_id, e);
         }
+        // Release the room (and its router) once the last peer has left.
+        self.cleanup_room_if_empty(&room_id);
 
         info!("Connection from {} closed", addr);
         incoming_result
@@ -556,15 +558,39 @@ impl MediaSoupServer {
         Ok(serde_json::json!({}))
     }
     
-    /// Get or create a room
+    /// Get or create a room.
+    ///
+    /// The router is created *before* touching the map so we never hold a
+    /// DashMap shard lock across the `.await`. The final insert uses the `entry`
+    /// API so two simultaneous first-connections can't both win: the loser drops
+    /// its freshly created room (and its router) instead of leaking it (#123).
     async fn get_or_create_room(&self, room_id: &str) -> Result<Arc<Room>> {
+        // Fast path: already exists.
         if let Some(room) = self.rooms.get(room_id) {
-            Ok(room.clone())
-        } else {
-            let worker = self.worker_manager.get_worker().await?;
-            let room = Arc::new(Room::new(room_id.to_string(), &worker).await?);
-            self.rooms.insert(room_id.to_string(), room.clone());
-            Ok(room)
+            return Ok(room.clone());
+        }
+
+        // Create the router without holding any lock.
+        let worker = self.worker_manager.get_worker().await?;
+        let new_room = Arc::new(Room::new(room_id.to_string(), &worker).await?);
+
+        // Insert only if still vacant; otherwise adopt the winner's room.
+        use dashmap::mapref::entry::Entry;
+        match self.rooms.entry(room_id.to_string()) {
+            Entry::Occupied(existing) => Ok(existing.get().clone()),
+            Entry::Vacant(slot) => {
+                slot.insert(new_room.clone());
+                Ok(new_room)
+            }
+        }
+    }
+
+    /// Remove a room once its last peer has left, freeing the mediasoup router.
+    /// `remove_if` re-checks emptiness while holding the shard lock, so a peer
+    /// joining concurrently keeps the room alive (#123).
+    fn cleanup_room_if_empty(&self, room_id: &str) {
+        if self.rooms.remove_if(room_id, |_, room| room.is_empty()).is_some() {
+            info!("Removed empty room {} (router released)", room_id);
         }
     }
 }
@@ -582,12 +608,31 @@ impl CustomWorkerManager {
         let worker_manager = WorkerManager::new();
         let mut workers = Vec::new();
         
+        // Apply configured log level/tags and the RTC port range so workers bind
+        // ICE/DTLS/RTP within the firewalled/Docker-mapped range (#123).
+        let log_level = Self::parse_log_level(&config.worker.log_level);
+        let log_tags: Vec<WorkerLogTag> = config
+            .worker
+            .log_tags
+            .iter()
+            .map(|tag| Self::parse_log_tag(tag))
+            .collect();
+        let rtc_port_range = config.worker.rtc_min_port..=config.worker.rtc_max_port;
+
         for i in 0..config.worker.num_workers {
-            let worker_settings = WorkerSettings::default();
-            // TODO: Configure worker settings for log level, tags, and RTC ports
-            
+            let mut worker_settings = WorkerSettings::default();
+            worker_settings.log_level = log_level;
+            worker_settings.log_tags = log_tags.clone();
+            worker_settings.rtc_port_range = rtc_port_range.clone();
+
             let worker = worker_manager.create_worker(worker_settings).await?;
-            info!("Created MediaSoup worker {} with ID {}", i, worker.id());
+            info!(
+                "Created MediaSoup worker {} with ID {} (rtc ports {}-{})",
+                i,
+                worker.id(),
+                config.worker.rtc_min_port,
+                config.worker.rtc_max_port
+            );
             workers.push(worker);
         }
         
@@ -604,19 +649,18 @@ impl CustomWorkerManager {
         self.workers.get(index).ok_or_else(|| MediaSoupError::Config("No workers available".to_string()))
     }
     
-    // TODO: Re-implement log level and tag parsing once we understand the new API
-    /*
-    /// Parse log level from string
+    /// Parse a worker log level from config, defaulting to `Warn`.
     fn parse_log_level(level: &str) -> WorkerLogLevel {
         match level.to_lowercase().as_str() {
             "debug" => WorkerLogLevel::Debug,
             "warn" => WorkerLogLevel::Warn,
             "error" => WorkerLogLevel::Error,
+            "none" | "off" => WorkerLogLevel::None,
             _ => WorkerLogLevel::Warn,
         }
     }
-    
-    /// Parse log tag from string
+
+    /// Parse a worker log tag from config, defaulting to `Info`.
     fn parse_log_tag(tag: &str) -> WorkerLogTag {
         match tag.to_lowercase().as_str() {
             "info" => WorkerLogTag::Info,
@@ -635,7 +679,6 @@ impl CustomWorkerManager {
             _ => WorkerLogTag::Info,
         }
     }
-    */
 }
 #[cfg(test)]
 mod tests {
