@@ -131,6 +131,11 @@ impl Room {
     pub fn get_peer(&self, peer_id: &str) -> Option<Arc<Peer>> {
         self.peers.get(peer_id).map(|entry| entry.clone())
     }
+
+    /// Whether the room has no peers (used to release empty rooms/routers).
+    pub fn is_empty(&self) -> bool {
+        self.peers.is_empty()
+    }
     
     /// Broadcast a message to all peers except the sender
     pub async fn broadcast_to_others(&self, sender_id: &str, message: OutgoingMessage) -> Result<()> {
@@ -364,5 +369,35 @@ impl Room {
                 ],
             },
         ]
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mediasoup::worker::WorkerSettings;
+    use mediasoup::worker_manager::WorkerManager;
+
+    /// A room reports empty until a peer joins and again once it leaves, which is
+    /// what lets the server release empty rooms/routers instead of leaking them.
+    #[tokio::test]
+    async fn is_empty_tracks_peer_membership() {
+        let worker_manager = WorkerManager::new();
+        let worker = worker_manager
+            .create_worker(WorkerSettings::default())
+            .await
+            .expect("failed to spawn mediasoup worker");
+        let room = Room::new("test".to_string(), &worker)
+            .await
+            .expect("failed to create room");
+        assert!(room.is_empty());
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let peer = Arc::new(Peer::new("user-1".to_string(), tx));
+        let peer_id = peer.id.clone();
+        room.add_peer(peer).await.expect("failed to add peer");
+        assert!(!room.is_empty());
+
+        room.remove_peer(&peer_id).await.expect("failed to remove peer");
+        assert!(room.is_empty());
     }
 }
