@@ -30,7 +30,7 @@ function getGitRemoteInfo() {
         console.warn('Could not parse git remote URL');
     }
 
-    return { username: 'yourusername', repository: 'foundryvtt-webrtc-mediasoup' };
+    return { username: 'yourusername', repository: 'your-repository' };
 }
 
 function getPackageVersion() {
