@@ -4,8 +4,8 @@ use crate::signaling::OutgoingMessage;
 use dashmap::DashMap;
 use mediasoup::prelude::*;
 use serde_json::Value;
-use std::sync::Arc;
 use std::num::{NonZeroU32, NonZeroU8};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -41,7 +41,7 @@ impl Peer {
             message_sender,
         }
     }
-    
+
     /// Send a message to this peer
     pub fn send_message(&self, message: OutgoingMessage) -> Result<()> {
         self.message_sender
@@ -49,17 +49,17 @@ impl Peer {
             .map_err(|_| MediaSoupError::InvalidRequest("Peer disconnected".to_string()))?;
         Ok(())
     }
-    
+
     /// Close all transports, producers, and consumers
     pub async fn close(&self) -> Result<()> {
         // Note: In the new API, close methods may be private or work differently
         // For now, we'll just remove references and let Drop handlers clean up
-        
+
         // Clear all collections
         self.consumers.clear();
         self.producers.clear();
         self.transports.clear();
-        
+
         Ok(())
     }
 }
@@ -78,29 +78,29 @@ impl Room {
         let router = worker
             .create_router(RouterOptions::new(Self::media_codecs()))
             .await?;
-            
+
         info!("Created room {} with router {}", id, router.id());
-        
+
         Ok(Self {
             id,
             router,
             peers: Arc::new(DashMap::new()),
         })
     }
-    
+
     /// Add a peer to the room
     pub async fn add_peer(&self, peer: Arc<Peer>) -> Result<()> {
         let peer_id = peer.id.clone();
         self.peers.insert(peer_id.clone(), peer.clone());
-        
+
         info!("Added peer {} to room {}", peer_id, self.id);
-        
+
         // Notify existing peers about new producer when this peer creates one
         // This will be handled in the produce method
-        
+
         Ok(())
     }
-    
+
     /// Remove a peer from the room
     pub async fn remove_peer(&self, peer_id: &str) -> Result<()> {
         if let Some((_, peer)) = self.peers.remove(peer_id) {
@@ -108,8 +108,11 @@ impl Room {
             // down. `Peer::close` clears the producer map, so collecting the ids
             // first is required for the `producerClosed` notifications to fire at
             // all (otherwise remaining peers' consumers hang).
-            let producer_ids: Vec<String> =
-                peer.producers.iter().map(|producer| producer.id().to_string()).collect();
+            let producer_ids: Vec<String> = peer
+                .producers
+                .iter()
+                .map(|producer| producer.id().to_string())
+                .collect();
             for producer_id in producer_ids {
                 let notification = OutgoingMessage::notification(
                     "producerClosed",
@@ -123,10 +126,10 @@ impl Room {
 
             info!("Removed peer {} from room {}", peer_id, self.id);
         }
-        
+
         Ok(())
     }
-    
+
     /// Get a peer by ID
     pub fn get_peer(&self, peer_id: &str) -> Option<Arc<Peer>> {
         self.peers.get(peer_id).map(|entry| entry.clone())
@@ -136,9 +139,13 @@ impl Room {
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    
+
     /// Broadcast a message to all peers except the sender
-    pub async fn broadcast_to_others(&self, sender_id: &str, message: OutgoingMessage) -> Result<()> {
+    pub async fn broadcast_to_others(
+        &self,
+        sender_id: &str,
+        message: OutgoingMessage,
+    ) -> Result<()> {
         for peer in self.peers.iter() {
             if peer.id != sender_id {
                 if let Err(e) = peer.send_message(message.clone()) {
@@ -148,7 +155,7 @@ impl Room {
         }
         Ok(())
     }
-    
+
     /// Broadcast a message to all peers
     pub async fn broadcast_to_all(&self, message: OutgoingMessage) -> Result<()> {
         for peer in self.peers.iter() {
@@ -158,7 +165,7 @@ impl Room {
         }
         Ok(())
     }
-    
+
     /// Create a WebRTC transport for a peer
     pub async fn create_webrtc_transport(
         &self,
@@ -169,15 +176,19 @@ impl Room {
         _prefer_udp: bool,
         _enable_sctp: bool,
     ) -> Result<WebRtcTransport> {
-        let peer = self.get_peer(peer_id)
+        let peer = self
+            .get_peer(peer_id)
             .ok_or_else(|| MediaSoupError::PeerNotFound(peer_id.to_string()))?;
-        
+
         // Convert custom ListenIp structs to mediasoup ListenInfo structs
         let listen_infos: Vec<ListenInfo> = listen_ips
             .into_iter()
             .map(|listen_ip| ListenInfo {
                 protocol: Protocol::Udp, // Default to UDP
-                ip: listen_ip.ip.parse().unwrap_or_else(|_| "0.0.0.0".parse().unwrap()),
+                ip: listen_ip
+                    .ip
+                    .parse()
+                    .unwrap_or_else(|_| "0.0.0.0".parse().unwrap()),
                 announced_address: listen_ip.announced_ip,
                 port: None, // Let mediasoup choose
                 port_range: None,
@@ -190,29 +201,35 @@ impl Room {
 
         let transport = self
             .router
-            .create_webrtc_transport(WebRtcTransportOptions::new(WebRtcTransportListenInfos::new(
-                listen_infos.into_iter().next().unwrap_or(ListenInfo {
-                    protocol: Protocol::Udp,
-                    ip: "0.0.0.0".parse().unwrap(),
-                    announced_address: None,
-                    port: None,
-                    port_range: None,
-                    expose_internal_ip: false,
-                    flags: None,
-                    send_buffer_size: None,
-                    recv_buffer_size: None,
-                }),
-            )))
+            .create_webrtc_transport(WebRtcTransportOptions::new(
+                WebRtcTransportListenInfos::new(listen_infos.into_iter().next().unwrap_or(
+                    ListenInfo {
+                        protocol: Protocol::Udp,
+                        ip: "0.0.0.0".parse().unwrap(),
+                        announced_address: None,
+                        port: None,
+                        port_range: None,
+                        expose_internal_ip: false,
+                        flags: None,
+                        send_buffer_size: None,
+                        recv_buffer_size: None,
+                    },
+                )),
+            ))
             .await?;
-        
+
         let transport_id = transport.id().to_string();
-        peer.transports.insert(transport_id.clone(), transport.clone());
-        
-        debug!("Created WebRTC transport {} for peer {}", transport_id, peer_id);
-        
+        peer.transports
+            .insert(transport_id.clone(), transport.clone());
+
+        debug!(
+            "Created WebRTC transport {} for peer {}",
+            transport_id, peer_id
+        );
+
         Ok(transport)
     }
-    
+
     /// Handle producer creation and notify other peers
     pub async fn create_producer(
         &self,
@@ -222,25 +239,33 @@ impl Room {
         rtp_parameters: RtpParameters,
         app_data: Option<Value>,
     ) -> Result<Producer> {
-        let peer = self.get_peer(peer_id)
+        let peer = self
+            .get_peer(peer_id)
             .ok_or_else(|| MediaSoupError::PeerNotFound(peer_id.to_string()))?;
-        
-        let transport = peer.transports.get(transport_id)
+
+        let transport = peer
+            .transports
+            .get(transport_id)
             .ok_or_else(|| MediaSoupError::TransportNotFound(transport_id.to_string()))?;
-        
+
         let mut options = ProducerOptions::new(kind, rtp_parameters);
         if let Some(app_data) = app_data {
             options.app_data = AppData::new(app_data);
         }
-        
-        let producer = transport.produce(options).await
+
+        let producer = transport
+            .produce(options)
+            .await
             .map_err(|e| MediaSoupError::Producer(e.to_string()))?;
-        
+
         let producer_id = producer.id().to_string();
         peer.producers.insert(producer_id.clone(), producer.clone());
-        
-        info!("Created producer {} for peer {} in room {}", producer_id, peer_id, self.id);
-        
+
+        info!(
+            "Created producer {} for peer {} in room {}",
+            producer_id, peer_id, self.id
+        );
+
         // Notify other peers about the new producer. Fields are flat and the
         // kind is lowercased ("audio"/"video") to match the client.
         let notification = OutgoingMessage::notification(
@@ -253,10 +278,10 @@ impl Room {
         );
 
         self.broadcast_to_others(&peer.id, notification).await?;
-        
+
         Ok(producer)
     }
-    
+
     /// Create a consumer for a peer to consume another peer's producer
     pub async fn create_consumer(
         &self,
@@ -265,12 +290,15 @@ impl Room {
         producer_id: &str,
         rtp_capabilities: RtpCapabilities,
     ) -> Result<Consumer> {
-        let peer = self.get_peer(peer_id)
+        let peer = self
+            .get_peer(peer_id)
             .ok_or_else(|| MediaSoupError::PeerNotFound(peer_id.to_string()))?;
-        
-        let transport = peer.transports.get(transport_id)
+
+        let transport = peer
+            .transports
+            .get(transport_id)
             .ok_or_else(|| MediaSoupError::TransportNotFound(transport_id.to_string()))?;
-        
+
         // Find the producer in any peer
         let mut producer_option = None;
         for other_peer in self.peers.iter() {
@@ -279,15 +307,17 @@ impl Room {
                 break;
             }
         }
-        
+
         let producer = producer_option
             .ok_or_else(|| MediaSoupError::ProducerNotFound(producer_id.to_string()))?;
-        
+
         // Check if router can consume this producer
         if !self.router.can_consume(&producer.id(), &rtp_capabilities) {
-            return Err(MediaSoupError::Consumer("Cannot consume producer".to_string()));
+            return Err(MediaSoupError::Consumer(
+                "Cannot consume producer".to_string(),
+            ));
         }
-        
+
         // Create the consumer paused, as recommended by mediasoup, so the client
         // can be ready before media flows. The client resumes it via the
         // `consumerResume` request once the local consumer is set up.
@@ -298,15 +328,18 @@ impl Room {
             .consume(consumer_options)
             .await
             .map_err(|e| MediaSoupError::Consumer(e.to_string()))?;
-        
+
         let consumer_id = consumer.id().to_string();
         peer.consumers.insert(consumer_id.clone(), consumer.clone());
-        
-        debug!("Created consumer {} for peer {} in room {}", consumer_id, peer_id, self.id);
-        
+
+        debug!(
+            "Created consumer {} for peer {} in room {}",
+            consumer_id, peer_id, self.id
+        );
+
         Ok(consumer)
     }
-    
+
     /// Get RTP capabilities of the router
     pub fn get_rtp_capabilities(&self) -> RtpCapabilitiesFinalized {
         self.router.rtp_capabilities()
@@ -324,8 +357,7 @@ impl Room {
                 parameters: RtpCodecParametersParameters::default(),
                 rtcp_feedback: vec![],
             },
-            
-            // Video codecs  
+            // Video codecs
             RtpCodecCapability::Video {
                 mime_type: MimeTypeVideo::Vp8,
                 preferred_payload_type: None,
@@ -342,9 +374,10 @@ impl Room {
                 mime_type: MimeTypeVideo::Vp9,
                 preferred_payload_type: None,
                 clock_rate: NonZeroU32::new(90000).unwrap(),
-                parameters: RtpCodecParametersParameters::from([
-                    ("profile-id".to_string(), "2".into()),
-                ]),
+                parameters: RtpCodecParametersParameters::from([(
+                    "profile-id".to_string(),
+                    "2".into(),
+                )]),
                 rtcp_feedback: vec![
                     RtcpFeedback::Nack,
                     RtcpFeedback::NackPli,
@@ -397,7 +430,9 @@ mod tests {
         room.add_peer(peer).await.expect("failed to add peer");
         assert!(!room.is_empty());
 
-        room.remove_peer(&peer_id).await.expect("failed to remove peer");
+        room.remove_peer(&peer_id)
+            .await
+            .expect("failed to remove peer");
         assert!(room.is_empty());
     }
 }

@@ -14,7 +14,9 @@ A high-performance MediaSoup server implementation in Rust, designed specificall
 
 ### Prerequisites
 
-- Rust 1.70+ installed
+- Rust 1.82+ installed (edition 2021)
+- Build tools required by `mediasoup-sys`: `cmake`, `python3`, and a C/C++
+  toolchain (`build-essential`), plus the `rustfmt` component
 - Network connectivity for WebRTC (UDP ports)
 
 ### Installation
@@ -56,25 +58,34 @@ The server is configured through environment variables. Copy `.env.example` to `
 
 - `MEDIASOUP_ANNOUNCED_IP`: Public IP for NAT traversal (optional)
 
+### Security & TLS
+
+- `MEDIASOUP_AUTH_TOKEN`: Shared secret clients must present to connect. When
+  unset, the server runs **unauthenticated** (development only) and logs a
+  warning. Set the same value in the FoundryVTT module settings.
+- `MEDIASOUP_TLS_CERT` / `MEDIASOUP_TLS_KEY`: Paths to a PEM certificate chain
+  and private key. When both are set, the server terminates TLS natively and
+  accepts `wss://` directly; when unset, it serves plain `ws://` and expects
+  TLS to be terminated by a reverse proxy.
+
 ## Deployment
 
 ### Docker
 
-Create a `Dockerfile`:
+A production `Dockerfile` and `docker-compose.yml` are already provided in this
+directory. The Dockerfile uses a multi-stage build (Rust 1.82 builder with the
+`mediasoup-sys` build dependencies, non-root `debian:bullseye-slim` runtime):
 
-```dockerfile
-FROM rust:1.70 as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --release
+```bash
+# Build and run with docker compose (maps ws:// 3000 and the RTC UDP range)
+docker compose up --build
 
-FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/mediasoup-server /usr/local/bin/
-EXPOSE 3000
-EXPOSE 10000-10100/udp
-CMD ["mediasoup-server"]
+# Or build the image directly
+docker build -t mediasoup-server .
 ```
+
+Set `MEDIASOUP_AUTH_TOKEN` (and optionally the TLS vars) in the environment
+before starting; see `docker-compose.yml` for the full variable list.
 
 ### Systemd Service
 
@@ -127,7 +138,7 @@ Configure the FoundryVTT client to connect to your server:
 2. In module settings, set **MediaSoup Server URL** to:
    - Local: `ws://localhost:3000`
    - Remote: `ws://your-server-ip:3000`
-   - Secure: `wss://your-domain:3000` (requires reverse proxy)
+   - Secure: `wss://your-domain:3000` (via native TLS with `MEDIASOUP_TLS_CERT`/`MEDIASOUP_TLS_KEY`, or a reverse proxy)
 
 ## Reverse Proxy (Production)
 

@@ -1,0 +1,42 @@
+name: Server CI
+
+# Rust gates for the MediaSoup SFU server (server/). Path-filtered so it only
+# runs when the server or this workflow changes, not on unrelated module edits.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: fmt, clippy & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - name: Format check
+        working-directory: server
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        working-directory: server
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        working-directory: server
+        run: cargo test
