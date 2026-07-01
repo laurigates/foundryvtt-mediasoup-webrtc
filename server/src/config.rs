@@ -7,16 +7,16 @@ use std::net::SocketAddr;
 pub struct Config {
     /// Address to listen on for WebSocket connections
     pub listen_addr: SocketAddr,
-    
+
     /// HTTP server address for serving static files (optional)
     pub http_addr: Option<SocketAddr>,
-    
+
     /// MediaSoup worker settings
     pub worker: WorkerConfig,
-    
+
     /// Router settings
     pub router: RouterConfig,
-    
+
     /// WebRTC transport settings
     pub webrtc: WebRtcConfig,
 
@@ -41,13 +41,13 @@ pub struct TlsConfig {
 pub struct WorkerConfig {
     /// Number of worker processes to spawn
     pub num_workers: usize,
-    
+
     /// Log level for MediaSoup worker
     pub log_level: String,
-    
+
     /// Log tags to enable
     pub log_tags: Vec<String>,
-    
+
     /// RTC port range for UDP/TCP
     pub rtc_min_port: u16,
     pub rtc_max_port: u16,
@@ -87,49 +87,47 @@ impl Config {
             listen_addr: std::env::var("MEDIASOUP_LISTEN_ADDR")
                 .unwrap_or_else(|_| "0.0.0.0:3000".to_string())
                 .parse()?,
-            
+
             http_addr: std::env::var("MEDIASOUP_HTTP_ADDR")
                 .ok()
                 .map(|addr| addr.parse())
                 .transpose()?,
-            
+
             worker: WorkerConfig {
                 num_workers: std::env::var("MEDIASOUP_NUM_WORKERS")
                     .unwrap_or_else(|_| "1".to_string())
                     .parse()
                     .unwrap_or(1),
-                
+
                 log_level: std::env::var("MEDIASOUP_LOG_LEVEL")
                     .unwrap_or_else(|_| "warn".to_string()),
-                
+
                 log_tags: std::env::var("MEDIASOUP_LOG_TAGS")
                     .unwrap_or_else(|_| "info".to_string())
                     .split(',')
                     .map(|s| s.trim().to_string())
                     .collect(),
-                
+
                 rtc_min_port: std::env::var("MEDIASOUP_RTC_MIN_PORT")
                     .unwrap_or_else(|_| "10000".to_string())
                     .parse()
                     .unwrap_or(10000),
-                
+
                 rtc_max_port: std::env::var("MEDIASOUP_RTC_MAX_PORT")
                     .unwrap_or_else(|_| "10100".to_string())
                     .parse()
                     .unwrap_or(10100),
             },
-            
+
             router: RouterConfig {
                 media_codecs: Self::default_media_codecs(),
             },
-            
+
             webrtc: WebRtcConfig {
-                listen_ips: vec![
-                    ListenIp {
-                        ip: "0.0.0.0".to_string(),
-                        announced_ip: std::env::var("MEDIASOUP_ANNOUNCED_IP").ok(),
-                    }
-                ],
+                listen_ips: vec![ListenIp {
+                    ip: "0.0.0.0".to_string(),
+                    announced_ip: std::env::var("MEDIASOUP_ANNOUNCED_IP").ok(),
+                }],
             },
 
             auth_token: std::env::var("MEDIASOUP_AUTH_TOKEN")
@@ -137,17 +135,24 @@ impl Config {
                 .filter(|s| !s.is_empty()),
 
             tls: match (
-                std::env::var("MEDIASOUP_TLS_CERT").ok().filter(|s| !s.is_empty()),
-                std::env::var("MEDIASOUP_TLS_KEY").ok().filter(|s| !s.is_empty()),
+                std::env::var("MEDIASOUP_TLS_CERT")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                std::env::var("MEDIASOUP_TLS_KEY")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
             ) {
-                (Some(cert_path), Some(key_path)) => Some(TlsConfig { cert_path, key_path }),
+                (Some(cert_path), Some(key_path)) => Some(TlsConfig {
+                    cert_path,
+                    key_path,
+                }),
                 _ => None,
             },
         };
 
         Ok(config)
     }
-    
+
     /// Default media codecs for FoundryVTT compatibility
     fn default_media_codecs() -> Vec<MediaCodec> {
         vec![
@@ -159,7 +164,6 @@ impl Config {
                 channels: Some(2),
                 parameters: None,
             },
-            
             // Video codecs
             MediaCodec {
                 kind: "video".to_string(),

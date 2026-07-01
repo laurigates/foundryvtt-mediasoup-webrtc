@@ -1,16 +1,11 @@
 use anyhow::Result;
-use std::net::SocketAddr;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-mod config;
-mod error;
-mod server;
-mod signaling;
-mod room;
-
-use config::Config;
-use server::MediaSoupServer;
+// Consume the library crate rather than re-declaring the modules with `mod`,
+// so the modules are compiled once (as the lib) and their public API is not
+// re-analyzed as dead code in the binary's context.
+use mediasoup_server::{Config, MediaSoupServer};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,9 +23,9 @@ async fn main() -> Result<()> {
 
     // Create and start the server
     let server = MediaSoupServer::new(config).await?;
-    
+
     info!("MediaSoup server started successfully");
-    
+
     // Run the server
     server.run().await?;
 

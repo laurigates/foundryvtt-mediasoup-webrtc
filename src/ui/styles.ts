@@ -2,8 +2,8 @@
  * CSS styles for MediaSoupVTT UI elements
  */
 
-export function injectStyles() {
-    const styles = `
+export function injectStyles(): void {
+  const styles = `
         .mediasoup-video-container {
             max-width: 160px;
             max-height: 120px;
@@ -22,7 +22,7 @@ export function injectStyles() {
             position: fixed;
             bottom: 70px;
             right: 20px;
-            width: 200px; 
+            width: 200px;
             height: 150px;
             border: 2px solid #555;
             background-color: black;
@@ -34,13 +34,13 @@ export function injectStyles() {
             z-index: 1;
         }
     `;
-    const existingStyles = document.getElementById('mediasoup-vtt-styles');
-    if (existingStyles) {
-        existingStyles.remove();
-    }
+  const existingStyles = document.getElementById('mediasoup-vtt-styles');
+  if (existingStyles) {
+    existingStyles.remove();
+  }
 
-    const styleElement = document.createElement('style');
-    styleElement.id = 'mediasoup-vtt-styles';
-    styleElement.textContent = styles;
-    document.head.appendChild(styleElement);
+  const styleElement = document.createElement('style');
+  styleElement.id = 'mediasoup-vtt-styles';
+  styleElement.textContent = styles;
+  document.head.appendChild(styleElement);
 }

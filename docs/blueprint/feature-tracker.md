@@ -16,5 +16,6 @@
 | Device enumeration and switching                    | PRD-001 | in-progress | should   |
 | Producer pause/resume on remote peers               | PRD-001 | in-progress | should   |
 | Debug logging toggle                                | PRD-001 | implemented | could    |
-| Unit tests for client logic                         | PRD-001 | not-started | should   |
+| Unit tests for client logic                         | PRD-001 | in-progress | should   |
+| TypeScript migration (Vite + bun + biome)           | ADR-003 | implemented | should   |
 | JSDoc comments on public API                        | PRD-001 | not-started | should   |

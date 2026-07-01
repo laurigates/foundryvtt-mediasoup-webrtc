@@ -1,145 +1,62 @@
-# Documentation for agents
+# MediaSoupVTT (`mediasoup-vtt`)
 
-This file provides guidance for programming agents when working with code in this repository.
+A FoundryVTT v13 module providing WebRTC audio/video between players via a
+**MediaSoup SFU**. Built with Vite + TypeScript + bun + biome. Two parts:
 
-## Repository Overview
+- **Client** (`src/`) — the Foundry ESM module, bundled to `dist/mediasoup-vtt.mjs`.
+- **Server** (`server/`) — a standalone Rust MediaSoup SFU the client connects to
+  over a WebSocket. Has its own Cargo build/test and CI (`server-ci.yml`).
 
-This is a **FoundryVTT WebRTC plugin** that uses MediaSoup as an SFU (Selective Forwarding Unit) for real-time audio/video communication between players. The plugin enables server-side audio recording for external D&D helper applications while providing a complete A/V solution for tabletop gaming sessions.
+## Layout
 
-## Development Commands
+| Path | Role |
+|------|------|
+| `module.json` | The manifest. `id` = `mediasoup-vtt`, MUST match the install folder + zip name. release-please bumps `$.version` in lockstep with `package.json`. |
+| `src/mediasoup-vtt.ts` | ESM entry (`esmodules`). Registers Foundry hooks; built to `dist/mediasoup-vtt.mjs` by Vite. |
+| `src/client/MediaSoupVTTClient.ts` | The WebRTC/mediasoup client — WebSocket signaling, transports, producers/consumers. Talks to `server/`. |
+| `src/ui/*.ts` | Foundry UI integration (settings, config dialog, scene controls, player list). |
+| `src/constants/index.ts` | `MODULE_ID` / settings keys / signaling message types — single source. |
+| `src/foundry-shims.d.ts` | Loose ambient types for Foundry globals. Keep `tsc` green; verify the real API before trusting a shape. |
+| `lang/en.json`, `styles/mediasoup-vtt.css`, `templates/` | Localization, styles, Handlebars templates — static-copied to `dist/`. |
+| `server/` | The Rust SFU (see `server/README.md`). |
 
-### Build System
+## Commands
 
-The project now has a complete build system with Rollup and npm scripts:
+`just` (or `just --list`) for recipes; underlying scripts are bun:
 
-```bash
-# Development build with file watching
-npm run dev
+- `just dev` — Vite dev server (proxies to Foundry on :30000 with HMR).
+- `just build` — build `dist/mediasoup-vtt.mjs` + static assets.
+- `just check` — **the local gate**: `typecheck` + `build` + `lint` (biome) + `test` (vitest). Must pass before pushing.
+- `just server-check` — `cargo fmt --check` + `clippy -D warnings` + `cargo test` for the Rust SFU.
+- `just test-e2e` — Playwright integration suite (needs a live Foundry harness; see caveat below).
 
-# Production build
-npm run build
+## Rules of the road
 
-# Clean build directory
-npm run clean
+- **`mediasoup-client` is BUNDLED, not external.** Foundry has no npm, so the SFU
+  client ships inside `dist/mediasoup-vtt.mjs`. Vite lib-mode bundles it by default
+  (do not add it to `rollupOptions.external`). It has **no default export** — import
+  it as `import * as mediasoupClient from 'mediasoup-client'`.
+- **Target the harness-pinned Foundry version.** The local `foundryvtt-harness`
+  pins a specific v13 build; behavior is version-specific. Keep `module.json`
+  `compatibility.{minimum,verified}` in sync with what you actually test against.
+- **Verify the Foundry API before patching.** `game.*`, hooks, and the
+  `foundry.applications.*` namespaces change across major versions. Check
+  <https://foundryvtt.com/api/> or the live console — not memory or the shims.
+- **ESM only, paths must byte-match the manifest.** `esmodules` references
+  `mediasoup-vtt.mjs`; if the Vite output name drifts, the module silently fails to load.
+- **Do not commit `dist/`.** It is a build artifact (git-ignored); CI builds it for releases.
+- **Green `just check` ≠ working A/V.** The unit/type/build/lint gates cannot
+  exercise real-time WebRTC — that needs a live Foundry + a running `server/` SFU.
+  Test A/V changes end-to-end against the harness.
 
-# Lint code
-npm run lint
+## Reference docs (context7)
 
-# Fix linting issues
-npm run lint:fix
+- `/foundryvtt/foundryvtt`, `/versatica/mediasoup`, `/versatica/mediasoup-client`
 
-# Create distribution package
-npm run package
+## Caveat: the Playwright e2e suite is deferred
 
-# Run tests with list reporter (prevents browser opening)
-npm test -- --reporter=list
-
-# Run tests (opens browser report by default)
-npm test
-```
-
-## Relevant Documentation
-
-Use the context7 MCP for documentation
-
-- /foundryvtt/foundryvtt
-- /versatica/mediasoup
-- /versatica/mediasoup-client
-
-## Testing Procedure with Playwright
-
-To ensure the stability and functionality of the Foundry VTT application and its modules, Playwright can be used for automated end-to-end testing.
-
-### Prerequisites
-
-1.  **Node.js and npm:** Ensure you have Node.js and npm installed.
-2.  **Playwright:** Install Playwright in your project:
-    ```bash
-    npm init playwright@latest
-    ```
-    Follow the prompts to set up your project.
-
-### Starting the Foundry VTT Server for Tests
-
-The `fvtt launch` command can be used to start the Foundry VTT server as a pre-test step. This ensures that the application is running and accessible for Playwright to interact with.
-
-You can integrate this into your Playwright test setup (e.g., in a `globalSetup` file or directly within your test scripts).
-
-### Example Playwright Test Structure
-
-Here's a basic example of how you might structure a Playwright test that includes starting the Foundry VTT server:
-
-```javascript
-// playwright.config.js (or a globalSetup file)
-// This is a simplified example. For a real setup, consider a dedicated script
-// to manage the fvtt launch process and ensure it's fully ready before tests.
-
-const { defineConfig } = require("@playwright/test");
-const { execSync } = require("child_process");
-
-module.exports = defineConfig({
-  // ... other Playwright configurations
-
-  globalSetup: require.resolve("./global-setup"),
-  globalTeardown: require.resolve("./global-teardown"),
-
-  use: {
-    baseURL: "http://localhost:30000", // Replace with your Foundry VTT URL
-    // ... other use options
-  },
-});
-
-// global-setup.js
-const { execSync } = require("child_process");
-
-async function globalSetup() {
-  console.log("Starting Foundry VTT server...");
-  // Use 'fvtt launch' to start the server.
-  // You might need to adjust the command based on your fvtt-cli setup.
-  // Consider adding a delay or a health check to ensure the server is fully up.
-  execSync(
-    'fvtt launch --adminKey "ABC123" --noupnp --noupdate --world waterdeep --dataPath /Users/lgates/repos/foundryvtt_clone/foundryvtt/data &',
-    { stdio: "inherit" },
-  );
-  console.log("Foundry VTT server started. Waiting for it to be ready...");
-  // Add a delay or a more robust health check here
-  await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait 10 seconds
-  console.log("Foundry VTT server should be ready.");
-}
-
-module.exports = globalSetup;
-
-// global-teardown.js
-const { execSync } = require("child_process");
-
-async function globalTeardown() {
-  console.log("Stopping Foundry VTT server...");
-  // Command to stop the fvtt server. This might vary based on how it was launched.
-  // You might need to find the process ID and kill it.
-  execSync('pkill -f "fvtt launch"', { stdio: "inherit" }); // Example: Kills processes containing "fvtt launch"
-  console.log("Foundry VTT server stopped.");
-}
-
-module.exports = globalTeardown;
-
-// tests/example.spec.js
-const { test, expect } = require("@playwright/test");
-
-test("basic Foundry VTT page load", async ({ page }) => {
-  await page.goto("/"); // Navigates to baseURL defined in playwright.config.js
-  await expect(page.locator("title")).toHaveText(/Foundry Virtual Tabletop/);
-  // Add more assertions here to check for UI elements, module loading, etc.
-});
-```
-
-### Running Tests
-
-To run your Playwright tests:
-
-```bash
-npx playwright test
-```
-
-This setup provides a robust way to automate testing for your Foundry VTT instance.
-
----
+`tests/integration/` predates the Vite migration and loaded a Rollup-only test
+bundle that no longer exists. The suite is currently **not wired to the Vite
+build and not run in CI** (it's excluded from biome too). `just test-e2e` will not
+pass until it's re-wired — tracked as a follow-up issue. Unit tests (`tests/unit/`,
+Vitest) are the CI test gate.

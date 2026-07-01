@@ -91,7 +91,7 @@ the recordings without relying on cloud providers.
 | NFR-PRF-002 | Performance   | Audio latency shall be low enough for natural conversation.                        |
 | NFR-REL-001 | Reliability   | Connections shall remain stable under normal network conditions.                   |
 | NFR-REL-002 | Reliability   | Camera and microphone resources shall be released on disconnect.                   |
-| NFR-CMP-001 | Compatibility | Must support FoundryVTT v10.291 through v13.330.                                   |
+| NFR-CMP-001 | Compatibility | Must support FoundryVTT v13 (module.json: minimum 13, verified 13.348).             |
 | NFR-CMP-002 | Compatibility | Must function in Chromium-based browsers (primary FoundryVTT target).              |
 | NFR-SEC-001 | Security      | WSS and DTLS-SRTP shall be used in production deployments.                         |
 | NFR-SEC-002 | Security      | No sensitive user data shall be persisted beyond session scope.                    |
@@ -99,7 +99,7 @@ the recordings without relying on cloud providers.
 ## Signaling Protocol
 
 The client uses a WebSocket request/response protocol with these message types
-(defined in `src/constants/index.js`):
+(defined in `src/constants/index.ts`):
 
 - `getRouterRtpCapabilities` - Fetch server codec capabilities
 - `createWebRtcTransport` - Create a send or receive transport
@@ -110,7 +110,7 @@ The client uses a WebSocket request/response protocol with these message types
 
 ## Dependencies
 
-- `mediasoup-client` ^3.7.6 - Client-side WebRTC and MediaSoup abstractions
+- `mediasoup-client` ^3.12.5 - Client-side WebRTC and MediaSoup abstractions (imported as a namespace; v3 has no default export)
 - FoundryVTT API (hooks, settings, UI) - Platform integration surface
 - Separate MediaSoup Rust server (see `server/`) - Required for signaling and media forwarding
 
@@ -122,4 +122,4 @@ The client uses a WebSocket request/response protocol with these message types
 2. Mute and camera-off toggles work in real time and are reflected in other
    players' UIs.
 3. The server receives RTP audio streams that can be recorded server-side.
-4. The module installs cleanly from the manifest URL on FoundryVTT v10-v13.
+4. The module installs cleanly from the manifest URL on FoundryVTT v13.

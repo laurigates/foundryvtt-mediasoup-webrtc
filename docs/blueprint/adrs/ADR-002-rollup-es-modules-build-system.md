@@ -1,11 +1,19 @@
 ---
 id: ADR-002
 title: Rollup and ES Modules Build System
-status: accepted
+status: superseded
+superseded-by: ADR-003
 created: 2026-03-05
 ---
 
 # ADR-002: Rollup and ES Modules Build System
+
+> **Superseded by [ADR-003](ADR-003-vite-typescript-build-system.md) (2026-07-01).**
+> The build system moved from Rollup + npm + JavaScript to Vite + bun +
+> TypeScript to align with the portfolio's FoundryVTT-module standard. The
+> **ES-module output** and **bundled `mediasoup-client`** decisions below still
+> hold; only the bundler, package manager, and source language changed. This
+> record is retained as history — do not edit the body.
 
 ## Context
 

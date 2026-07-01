@@ -6,24 +6,29 @@ project:
         integration, and server-side audio recording capability for external
         D&D helper applications.
     version: 0.7.20
-    language: javascript
+    language: typescript
     framework: none (FoundryVTT module)
+    toolchain: vite + bun + biome + vitest
     repository: https://github.com/laurigates/foundryvtt-mediasoup-webrtc
     license: MIT
 
 components:
     - name: client-module
       path: src/
-      language: javascript
-      description: FoundryVTT ES module built with Rollup
+      language: typescript
+      description: FoundryVTT ES module built with Vite (bundled to dist/mediasoup-vtt.mjs)
     - name: sfu-server
       path: server/
       language: rust
       description: MediaSoup SFU server with WebSocket signaling
+    - name: unit-tests
+      path: tests/unit/
+      language: typescript
+      description: Vitest unit suite (the CI test gate)
     - name: integration-tests
-      path: tests/
+      path: tests/integration/
       language: javascript
-      description: Playwright end-to-end integration tests
+      description: Playwright end-to-end suite — deferred, not wired to Vite/CI (see ADR-003)
 
 documents:
     prds:
@@ -41,5 +46,10 @@ documents:
         - id: ADR-002
           file: adrs/ADR-002-rollup-es-modules-build-system.md
           title: Rollup and ES Modules Build System
-          status: accepted
+          status: superseded
           created: 2026-03-05
+        - id: ADR-003
+          file: adrs/ADR-003-vite-typescript-build-system.md
+          title: Vite + TypeScript Build System
+          status: accepted
+          created: 2026-07-01

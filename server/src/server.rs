@@ -6,8 +6,8 @@ use dashmap::DashMap;
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use mediasoup::prelude::*;
-use mediasoup::worker_manager::WorkerManager;
 use mediasoup::worker::{WorkerLogLevel, WorkerLogTag, WorkerSettings};
+use mediasoup::worker_manager::WorkerManager;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -100,18 +100,24 @@ impl MediaSoupServer {
     /// Create a new MediaSoup server
     pub async fn new(config: Config) -> Result<Self> {
         let worker_manager = CustomWorkerManager::new(&config).await?;
-        
+
         Ok(Self {
             config,
             worker_manager,
             rooms: Arc::new(DashMap::new()),
         })
     }
-    
+
     /// Run the server
     pub async fn run(self) -> Result<()> {
-        let listener = TcpListener::bind(&self.config.listen_addr).await
-            .map_err(|e| MediaSoupError::Config(format!("Failed to bind to {}: {}", self.config.listen_addr, e)))?;
+        let listener = TcpListener::bind(&self.config.listen_addr)
+            .await
+            .map_err(|e| {
+                MediaSoupError::Config(format!(
+                    "Failed to bind to {}: {}",
+                    self.config.listen_addr, e
+                ))
+            })?;
 
         // Build an optional TLS acceptor for native wss:// termination.
         let tls_acceptor = match &self.config.tls {
@@ -214,7 +220,9 @@ impl MediaSoupServer {
         };
 
         // Handle incoming messages
-        let incoming_result = self.handle_incoming_messages(&mut ws_receiver, peer.clone(), room.clone()).await;
+        let incoming_result = self
+            .handle_incoming_messages(&mut ws_receiver, peer.clone(), room.clone())
+            .await;
 
         // Cleanup
         outgoing_task.abort();
@@ -246,7 +254,9 @@ impl MediaSoupServer {
             let text = match frame {
                 Message::Text(text) => text,
                 Message::Close(_) => {
-                    return Err(MediaSoupError::InvalidRequest("Closed before auth".to_string()))
+                    return Err(MediaSoupError::InvalidRequest(
+                        "Closed before auth".to_string(),
+                    ))
                 }
                 _ => continue, // ignore pings/binary before auth
             };
@@ -255,7 +265,11 @@ impl MediaSoupServer {
             if message.msg_type != "authenticate" {
                 let err = "Authentication required: first message must be 'authenticate'";
                 if let Some(request_id) = message.request_id.clone() {
-                    send_frame(ws_sender, OutgoingMessage::error(request_id, err.to_string())).await?;
+                    send_frame(
+                        ws_sender,
+                        OutgoingMessage::error(request_id, err.to_string()),
+                    )
+                    .await?;
                 }
                 return Err(MediaSoupError::InvalidRequest(err.to_string()));
             }
@@ -268,7 +282,8 @@ impl MediaSoupServer {
 
             if let Err(e) = self.verify_token(provided) {
                 if let Some(request_id) = message.request_id.clone() {
-                    send_frame(ws_sender, OutgoingMessage::error(request_id, e.to_string())).await?;
+                    send_frame(ws_sender, OutgoingMessage::error(request_id, e.to_string()))
+                        .await?;
                 }
                 return Err(e);
             }
@@ -282,15 +297,20 @@ impl MediaSoupServer {
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
 
             if let Some(request_id) = message.request_id.clone() {
-                send_frame(ws_sender, OutgoingMessage::response(request_id, serde_json::json!({})))
-                    .await?;
+                send_frame(
+                    ws_sender,
+                    OutgoingMessage::response(request_id, serde_json::json!({})),
+                )
+                .await?;
             }
 
             debug!("Authenticated user {}", user_id);
             return Ok(user_id);
         }
 
-        Err(MediaSoupError::InvalidRequest("Connection closed before authentication".to_string()))
+        Err(MediaSoupError::InvalidRequest(
+            "Connection closed before authentication".to_string(),
+        ))
     }
 
     /// Validate a client-provided token against the configured shared secret
@@ -302,7 +322,9 @@ impl MediaSoupServer {
                 if constant_time_eq(expected.as_bytes(), provided.as_bytes()) {
                     Ok(())
                 } else {
-                    Err(MediaSoupError::InvalidRequest("Invalid authentication token".to_string()))
+                    Err(MediaSoupError::InvalidRequest(
+                        "Invalid authentication token".to_string(),
+                    ))
                 }
             }
         }
@@ -317,7 +339,7 @@ impl MediaSoupServer {
     ) -> Result<()> {
         while let Some(message) = ws_receiver.next().await {
             let message = message?;
-            
+
             match message {
                 Message::Text(text) => {
                     if let Err(e) = self.handle_signaling_message(&text, &peer, &room).await {
@@ -333,10 +355,10 @@ impl MediaSoupServer {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle a signaling message
     async fn handle_signaling_message(
         &self,
@@ -345,7 +367,10 @@ impl MediaSoupServer {
         room: &Arc<Room>,
     ) -> Result<()> {
         let message: IncomingMessage = serde_json::from_str(text)?;
-        debug!("Received message: {} from peer {}", message.msg_type, peer.id);
+        debug!(
+            "Received message: {} from peer {}",
+            message.msg_type, peer.id
+        );
 
         let result: Result<Value> = match message.msg_type.as_str() {
             // Authentication already happened during the handshake; a stray
@@ -353,7 +378,8 @@ impl MediaSoupServer {
             "authenticate" => Ok(serde_json::json!({})),
             "getRouterRtpCapabilities" => self.handle_get_router_rtp_capabilities(room).await,
             "createWebRtcTransport" => {
-                self.handle_create_webrtc_transport(&message, peer, room).await
+                self.handle_create_webrtc_transport(&message, peer, room)
+                    .await
             }
             "connectTransport" => self.handle_connect_transport(&message, peer).await,
             "produce" => self.handle_produce(&message, peer, room).await,
@@ -361,7 +387,9 @@ impl MediaSoupServer {
             "consumerResume" => self.handle_resume_consumer(&message, peer).await,
             "pauseProducer" => self.handle_pause_producer(&message, peer).await,
             "resumeProducer" => self.handle_resume_producer(&message, peer).await,
-            other => Err(MediaSoupError::InvalidRequest(format!("Unknown method: {other}"))),
+            other => Err(MediaSoupError::InvalidRequest(format!(
+                "Unknown method: {other}"
+            ))),
         };
 
         // Reply only if the client correlated this with a requestId.
@@ -375,7 +403,10 @@ impl MediaSoupServer {
             };
             peer.send_message(outgoing)?;
         } else if let Err(e) = result {
-            error!("Error handling '{}' (no requestId): {}", message.msg_type, e);
+            error!(
+                "Error handling '{}' (no requestId): {}",
+                message.msg_type, e
+            );
         }
 
         Ok(())
@@ -399,21 +430,26 @@ impl MediaSoupServer {
         // Use config listen IPs directly
         let listen_ips = self.config.webrtc.listen_ips.clone();
 
-        let transport = room.create_webrtc_transport(
-            &peer.id,
-            listen_ips,
-            true,  // enable_udp
-            true,  // enable_tcp
-            true,  // prefer_udp
-            data.sctp_capabilities.is_some(), // enable_sctp
-        ).await?;
+        let transport = room
+            .create_webrtc_transport(
+                &peer.id,
+                listen_ips,
+                true,                             // enable_udp
+                true,                             // enable_tcp
+                true,                             // prefer_udp
+                data.sctp_capabilities.is_some(), // enable_sctp
+            )
+            .await?;
 
         Ok(serde_json::to_value(TransportCreatedResponse {
             id: transport.id().to_string(),
             ice_parameters: serde_json::to_value(transport.ice_parameters())?,
             ice_candidates: serde_json::to_value(transport.ice_candidates())?,
             dtls_parameters: serde_json::to_value(transport.dtls_parameters())?,
-            sctp_parameters: transport.sctp_parameters().map(serde_json::to_value).transpose()?,
+            sctp_parameters: transport
+                .sctp_parameters()
+                .map(serde_json::to_value)
+                .transpose()?,
         })?)
     }
 
@@ -435,7 +471,9 @@ impl MediaSoupServer {
 
         let dtls_parameters: DtlsParameters = serde_json::from_value(data.dtls_parameters)?;
 
-        transport.connect(WebRtcTransportRemoteParameters { dtls_parameters }).await
+        transport
+            .connect(WebRtcTransportRemoteParameters { dtls_parameters })
+            .await
             .map_err(|e| MediaSoupError::Transport(e.to_string()))?;
 
         Ok(serde_json::json!({}))
@@ -453,18 +491,24 @@ impl MediaSoupServer {
         let kind = match data.kind.as_str() {
             "audio" => MediaKind::Audio,
             "video" => MediaKind::Video,
-            other => return Err(MediaSoupError::InvalidRequest(format!("Invalid media kind: {other}"))),
+            other => {
+                return Err(MediaSoupError::InvalidRequest(format!(
+                    "Invalid media kind: {other}"
+                )))
+            }
         };
 
         let rtp_parameters: RtpParameters = serde_json::from_value(data.rtp_parameters)?;
 
-        let producer = room.create_producer(
-            &peer.id,
-            &data.transport_id,
-            kind,
-            rtp_parameters,
-            data.app_data,
-        ).await?;
+        let producer = room
+            .create_producer(
+                &peer.id,
+                &data.transport_id,
+                kind,
+                rtp_parameters,
+                data.app_data,
+            )
+            .await?;
 
         Ok(serde_json::to_value(ProducedResponse {
             id: producer.id().to_string(),
@@ -482,12 +526,14 @@ impl MediaSoupServer {
 
         let rtp_capabilities: RtpCapabilities = serde_json::from_value(data.rtp_capabilities)?;
 
-        let consumer = room.create_consumer(
-            &peer.id,
-            &data.transport_id,
-            &data.producer_id,
-            rtp_capabilities,
-        ).await?;
+        let consumer = room
+            .create_consumer(
+                &peer.id,
+                &data.transport_id,
+                &data.producer_id,
+                rtp_capabilities,
+            )
+            .await?;
 
         Ok(serde_json::to_value(ConsumedResponse {
             id: consumer.id().to_string(),
@@ -504,15 +550,21 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let consumer_id = message.payload.get("consumerId")
+        let consumer_id = message
+            .payload
+            .get("consumerId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| MediaSoupError::InvalidRequest("Missing consumerId".to_string()))?;
 
-        let consumer = peer.consumers.get(consumer_id)
+        let consumer = peer
+            .consumers
+            .get(consumer_id)
             .map(|c| c.clone())
             .ok_or_else(|| MediaSoupError::ConsumerNotFound(consumer_id.to_string()))?;
 
-        consumer.resume().await
+        consumer
+            .resume()
+            .await
             .map_err(|e| MediaSoupError::Consumer(e.to_string()))?;
 
         Ok(serde_json::json!({}))
@@ -524,15 +576,21 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let producer_id = message.payload.get("producerId")
+        let producer_id = message
+            .payload
+            .get("producerId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
 
-        let producer = peer.producers.get(producer_id)
+        let producer = peer
+            .producers
+            .get(producer_id)
             .map(|p| p.clone())
             .ok_or_else(|| MediaSoupError::ProducerNotFound(producer_id.to_string()))?;
 
-        producer.pause().await
+        producer
+            .pause()
+            .await
             .map_err(|e| MediaSoupError::Producer(e.to_string()))?;
 
         Ok(serde_json::json!({}))
@@ -544,20 +602,26 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let producer_id = message.payload.get("producerId")
+        let producer_id = message
+            .payload
+            .get("producerId")
             .and_then(|v| v.as_str())
             .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
 
-        let producer = peer.producers.get(producer_id)
+        let producer = peer
+            .producers
+            .get(producer_id)
             .map(|p| p.clone())
             .ok_or_else(|| MediaSoupError::ProducerNotFound(producer_id.to_string()))?;
 
-        producer.resume().await
+        producer
+            .resume()
+            .await
             .map_err(|e| MediaSoupError::Producer(e.to_string()))?;
 
         Ok(serde_json::json!({}))
     }
-    
+
     /// Get or create a room.
     ///
     /// The router is created *before* touching the map so we never hold a
@@ -572,7 +636,7 @@ impl MediaSoupServer {
 
         // Create the router without holding any lock.
         let worker = self.worker_manager.get_worker().await?;
-        let new_room = Arc::new(Room::new(room_id.to_string(), &worker).await?);
+        let new_room = Arc::new(Room::new(room_id.to_string(), worker).await?);
 
         // Insert only if still vacant; otherwise adopt the winner's room.
         use dashmap::mapref::entry::Entry;
@@ -589,7 +653,11 @@ impl MediaSoupServer {
     /// `remove_if` re-checks emptiness while holding the shard lock, so a peer
     /// joining concurrently keeps the room alive (#123).
     fn cleanup_room_if_empty(&self, room_id: &str) {
-        if self.rooms.remove_if(room_id, |_, room| room.is_empty()).is_some() {
+        if self
+            .rooms
+            .remove_if(room_id, |_, room| room.is_empty())
+            .is_some()
+        {
             info!("Removed empty room {} (router released)", room_id);
         }
     }
@@ -599,6 +667,10 @@ impl MediaSoupServer {
 pub struct CustomWorkerManager {
     workers: Vec<Worker>,
     current_worker: std::sync::atomic::AtomicUsize,
+    // Retained (not read after construction) to keep the mediasoup WorkerManager —
+    // and therefore the worker subprocesses it spawned — alive for the lifetime of
+    // this struct. Dropping the manager would tear the workers down.
+    #[allow(dead_code)]
     worker_manager: WorkerManager,
 }
 
@@ -607,7 +679,7 @@ impl CustomWorkerManager {
     pub async fn new(config: &Config) -> Result<Self> {
         let worker_manager = WorkerManager::new();
         let mut workers = Vec::new();
-        
+
         // Apply configured log level/tags and the RTC port range so workers bind
         // ICE/DTLS/RTP within the firewalled/Docker-mapped range (#123).
         let log_level = Self::parse_log_level(&config.worker.log_level);
@@ -635,20 +707,25 @@ impl CustomWorkerManager {
             );
             workers.push(worker);
         }
-        
+
         Ok(Self {
             workers,
             current_worker: std::sync::atomic::AtomicUsize::new(0),
             worker_manager,
         })
     }
-    
+
     /// Get a worker (round-robin)
     pub async fn get_worker(&self) -> Result<&Worker> {
-        let index = self.current_worker.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.workers.len();
-        self.workers.get(index).ok_or_else(|| MediaSoupError::Config("No workers available".to_string()))
+        let index = self
+            .current_worker
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.workers.len();
+        self.workers
+            .get(index)
+            .ok_or_else(|| MediaSoupError::Config("No workers available".to_string()))
     }
-    
+
     /// Parse a worker log level from config, defaulting to `Warn`.
     fn parse_log_level(level: &str) -> WorkerLogLevel {
         match level.to_lowercase().as_str() {
