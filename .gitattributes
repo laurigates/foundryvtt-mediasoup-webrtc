@@ -1,11 +1,6 @@
-# Ensure consistent line endings
 * text=auto eol=lf
-
-# JavaScript files
-*.js text eol=lf
-*.json text eol=lf
-*.md text eol=lf
-
-# Config files
-*.yml text eol=lf
-*.yaml text eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+bun.lock linguist-generated=true
+server/Cargo.lock linguist-generated=true

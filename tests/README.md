@@ -1,5 +1,14 @@
 # MediaSoup FoundryVTT Plugin - Integration Testing
 
+> **⚠️ DEFERRED — not currently wired up or run in CI.** This Playwright suite
+> predates the Vite migration; it loaded a Rollup-only test bundle
+> (`dist/mediasoup-vtt-test.js`) that no longer exists, and it is excluded from
+> biome linting. `bun run test:e2e` will **not** pass until the suite is
+> re-wired onto the Vite build + a live Foundry harness. The `npm run …`
+> commands below are stale (the project now uses **bun**). The CI test gate is
+> the Vitest unit suite under `tests/unit/`. Re-wiring is tracked as a
+> follow-up issue.
+
 This directory contains a comprehensive integration testing framework for the MediaSoup FoundryVTT plugin. The framework enables testing WebRTC functionality, plugin integration, and server communication without requiring FoundryVTT source code.
 
 ## Overview

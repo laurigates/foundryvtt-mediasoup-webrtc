@@ -1,71 +1,53 @@
 {
-    "name": "foundryvtt-mediasoup-webrtc",
-    "version": "0.7.20",
-    "description": "WebRTC audio/video communication module for FoundryVTT using MediaSoup SFU server",
-    "main": "dist/mediasoup-vtt.js",
-    "type": "module",
-    "scripts": {
-        "build": "rollup -c",
-        "build:test": "rollup -c rollup.config.test.js",
-        "build:watch": "rollup -c --watch",
-        "dev": "npm run build:watch",
-        "lint": "biome check .",
-        "lint:fix": "biome check --write .",
-        "format": "biome format --write .",
-        "format:check": "biome format .",
-        "clean": "rimraf dist/",
-        "process-template": "node scripts/process-template.cjs",
-        "package": "npm run build && npm run process-template && npm run package:zip",
-        "package:zip": "cd dist && zip -r ../mediasoup-vtt.zip .",
-        "test": "playwright test",
-        "test:integration": "playwright test tests/integration/specs/",
-        "test:headed": "playwright test --headed",
-        "test:debug": "playwright test --debug",
-        "test:server": "cd server && cargo test",
-        "test:install": "playwright install",
-        "prepare": "husky"
-    },
-    "lint-staged": {
-        "*.{js,ts,json,css}": [
-            "biome check --write --no-errors-on-unmatched"
-        ]
-    },
-    "keywords": [
-        "foundryvtt",
-        "foundry-vtt",
-        "webrtc",
-        "mediasoup",
-        "audio",
-        "video",
-        "communication",
-        "tabletop",
-        "rpg"
-    ],
-    "author": "Your Name",
-    "license": "MIT",
-    "devDependencies": {
-        "@biomejs/biome": "^2.4.6",
-        "@playwright/test": "^1.54.1",
-        "@rollup/plugin-commonjs": "^28.0.6",
-        "@rollup/plugin-node-resolve": "^16.0.1",
-        "@rollup/plugin-terser": "^1.0.0",
-        "husky": "^9.1.7",
-        "lint-staged": "^15.2.11",
-        "rimraf": "^6.0.1",
-        "rollup": "^4.45.0"
-    },
-    "dependencies": {
-        "mediasoup-client": "^3.12.5"
-    },
-    "peerDependencies": {
-        "socket.io-client": "^4.7.4"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/laurigates/foundryvtt-mediasoup-webrtc.git"
-    },
-    "bugs": {
-        "url": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues"
-    },
-    "homepage": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc#readme"
+  "name": "foundryvtt-mediasoup-webrtc",
+  "version": "0.7.20",
+  "description": "WebRTC audio/video communication module for FoundryVTT using MediaSoup SFU server",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:server": "cd server && cargo test",
+    "check": "bun run typecheck && bun run build && bun run lint && bun run test"
+  },
+  "keywords": [
+    "foundryvtt",
+    "foundry-vtt",
+    "module",
+    "webrtc",
+    "mediasoup",
+    "audio",
+    "video",
+    "communication",
+    "tabletop",
+    "rpg"
+  ],
+  "author": "Lauri Gates",
+  "license": "MIT",
+  "dependencies": {
+    "mediasoup-client": "^3.12.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@playwright/test": "^1.54.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-static-copy": "^2.2.0",
+    "vitest": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laurigates/foundryvtt-mediasoup-webrtc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues"
+  },
+  "homepage": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc#readme"
 }

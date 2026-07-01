@@ -80,9 +80,9 @@ unzip mediasoup-vtt.zip -d /path/to/foundrydata/Data/modules/mediasoup-vtt/
 **Development Build:**
 
 ```bash
-npm install
-npm run build
-cp -r . /path/to/foundrydata/Data/modules/mediasoup-vtt/
+bun install
+bun run build   # or: just build
+cp -r dist/. /path/to/foundrydata/Data/modules/mediasoup-vtt/
 ```
 
 ### 3. Configure and Connect
@@ -239,15 +239,18 @@ services:
 ### Client Development
 
 ```bash
-# Development build with watching
-npm run dev
+# Vite dev server (HMR, proxies to Foundry on :30000)
+just dev            # or: bun run dev
 
-# Linting and formatting
-npm run lint
-npm run lint:fix
+# Typecheck + build + lint + test — the local gate
+just check
 
-# Production build
-npm run build
+# Linting / formatting (biome)
+bun run lint
+bun run lint:fix
+
+# Production build → dist/mediasoup-vtt.mjs
+just build          # or: bun run build
 ```
 
 ### Server Development
@@ -341,8 +344,8 @@ echo "mediasoup soft nofile 65536" >> /etc/security/limits.conf
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Follow development guidelines:
-   - Client: Run `npm run lint` and `npm run build`
-   - Server: Run `cargo fmt`, `cargo clippy`, `cargo test`
+   - Client: Run `just check` (typecheck + build + lint + test)
+   - Server: Run `just server-check` (`cargo fmt --check`, `clippy -D warnings`, `cargo test`)
 4. Commit with descriptive messages
 5. Submit Pull Request
 

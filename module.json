@@ -1,0 +1,36 @@
+{
+  "id": "mediasoup-vtt",
+  "title": "MediaSoupVTT",
+  "description": "WebRTC audio/video communication for FoundryVTT using a MediaSoup SFU server. Includes a configuration interface and setup guide.",
+  "version": "0.7.20",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13.348"
+  },
+  "authors": [
+    {
+      "name": "Lauri Gates"
+    }
+  ],
+  "esmodules": ["mediasoup-vtt.mjs"],
+  "styles": ["styles/mediasoup-vtt.css"],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc",
+  "manifest": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/module.json",
+  "download": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/mediasoup-vtt.zip",
+  "readme": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/blob/main/README.md",
+  "changelog": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/blob/main/CHANGELOG.md",
+  "bugs": "https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues",
+  "flags": {
+    "hotReload": {
+      "extensions": ["css", "hbs", "html", "json"],
+      "paths": ["styles", "templates", "lang"]
+    }
+  }
+}
