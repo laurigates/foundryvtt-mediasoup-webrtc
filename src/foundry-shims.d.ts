@@ -9,9 +9,7 @@
 
 // biome-ignore-all lint: ambient declarations, not runtime code.
 
-/* -------------------------------------------- */
-/*  Audio/Video (foundry.av.*)                  */
-/* -------------------------------------------- */
+// ==== Audio/Video (foundry.av.*) ====
 
 /** AVSettings.VOICE_MODES values. */
 type FoundryVoiceMode = 'always' | 'activity' | 'ptt';
@@ -148,9 +146,7 @@ interface FoundryAVNamespace {
   [key: string]: any;
 }
 
-/* -------------------------------------------- */
-/*  Scene controls and render hooks             */
-/* -------------------------------------------- */
+// ==== Scene controls and render hooks ====
 
 /** A tool inside a scene control (v13+: a Record keyed by tool name). */
 interface FoundrySceneControlTool {
@@ -194,9 +190,7 @@ type FoundryRenderApplicationV2Hook = (
   options: Record<string, any>,
 ) => unknown;
 
-/* -------------------------------------------- */
-/*  Game, UI, Hooks                             */
-/* -------------------------------------------- */
+// ==== Game, UI, Hooks ====
 
 interface FoundrySettings {
   register(namespace: string, key: string, data: Record<string, unknown>): void;

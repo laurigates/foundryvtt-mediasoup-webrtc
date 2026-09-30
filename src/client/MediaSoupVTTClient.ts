@@ -379,9 +379,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     this.#random = options.random ?? Math.random;
   }
 
-  /* -------------------------------------------- */
-  /*  State                                       */
-  /* -------------------------------------------- */
+  // ==== State ====
 
   get state(): ClientState {
     return this.#state;
@@ -423,9 +421,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     this.emit('stateChanged', reason ? { state, previous, reason } : { state, previous });
   }
 
-  /* -------------------------------------------- */
-  /*  Device                                      */
-  /* -------------------------------------------- */
+  // ==== Device ====
 
   /**
    * Create the mediasoup-client Device ahead of connecting. This detects the
@@ -450,9 +446,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     return this.device;
   }
 
-  /* -------------------------------------------- */
-  /*  Connection                                  */
-  /* -------------------------------------------- */
+  // ==== Connection ====
 
   /**
    * Open signaling, authenticate, load the Device, create both transports and
@@ -746,9 +740,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     }
   }
 
-  /* -------------------------------------------- */
-  /*  Reconnect                                   */
-  /* -------------------------------------------- */
+  // ==== Reconnect ====
 
   /**
    * Start the backoff reconnect loop after an unexpected loss. Does nothing if
@@ -831,9 +823,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     this.#setState('failed', `Reconnect failed: ${reason}`);
   }
 
-  /* -------------------------------------------- */
-  /*  Signaling                                   */
-  /* -------------------------------------------- */
+  // ==== Signaling ====
 
   /**
    * Send a request and resolve with the response's `data` field. Rejects with
@@ -962,9 +952,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     return direction === 'send' ? this.sendTransport : this.recvTransport;
   }
 
-  /* -------------------------------------------- */
-  /*  ICE recovery                                */
-  /* -------------------------------------------- */
+  // ==== ICE recovery ====
 
   #onTransportConnectionState(
     direction: TransportDirection,
@@ -1050,9 +1038,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     }
   }
 
-  /* -------------------------------------------- */
-  /*  Local media (producers)                     */
-  /* -------------------------------------------- */
+  // ==== Local media (producers) ====
 
   getProducer(tag: MediaTag): Producer | undefined {
     return this.producers.get(tag);
@@ -1266,9 +1252,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     );
   }
 
-  /* -------------------------------------------- */
-  /*  Remote media (consumers)                    */
-  /* -------------------------------------------- */
+  // ==== Remote media (consumers) ====
 
   /** User ids that currently have at least one consumed track. */
   getRemoteUserIds(): string[] {

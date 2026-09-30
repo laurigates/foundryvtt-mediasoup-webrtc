@@ -6,6 +6,7 @@
  * MediaSoupVTT is a Foundry AVClient registered as `CONFIG.WebRTC.clientClass`.
  */
 
+import { MediaSoupAVClient } from '../client/MediaSoupAVClient.js';
 import {
   MODULE_ID,
   SETTING_DEBUG_LOGGING,
@@ -24,9 +25,6 @@ export { SETTINGS_HELP_CLASS, STATUS_INDICATOR_CLASS };
 /** Delay before reconnecting after a connection setting changes. */
 const RECONNECT_DEBOUNCE_MS = 500;
 
-/** Name of the AVClient subclass exported by src/client/MediaSoupAVClient.ts. */
-const AV_CLIENT_CLASS_NAME = 'MediaSoupAVClient';
-
 /** `AVSettings.AV_MODES.DISABLED` (v13 and v14). */
 const AV_MODE_DISABLED = 0;
 
@@ -38,7 +36,6 @@ interface AVWorldSettingsLike {
 /** The subset of AVMaster (`game.webrtc`) and its AVClient this file touches. */
 interface AVMasterLike {
   client?: {
-    constructor?: { name?: string };
     isConnected?: unknown;
     settings?: AVWorldSettingsLike;
   } | null;
@@ -54,9 +51,14 @@ function getAVMaster(): AVMasterLike | undefined {
   return (game as { webrtc?: AVMasterLike }).webrtc;
 }
 
-/** True when core A/V is using this module's AVClient. */
+/**
+ * True when core A/V is using this module's AVClient. An `instanceof` check,
+ * not the class name: a minifier may rename the class, and another module's
+ * client could share the name. (MediaSoupAVClient does not import this file,
+ * so there is no import cycle.)
+ */
 function isMediaSoupClientActive(webrtc: AVMasterLike | undefined): boolean {
-  return webrtc?.client?.constructor?.name === AV_CLIENT_CLASS_NAME;
+  return webrtc?.client instanceof MediaSoupAVClient;
 }
 
 /**

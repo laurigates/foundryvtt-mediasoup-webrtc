@@ -32,6 +32,17 @@ import {
 /** Value of `client.audioSrc` / `client.videoSrc` that turns a device off. */
 const DISABLED_SOURCE = 'disabled';
 
+/**
+ * AVSettings paths that only change how the dock shows existing streams
+ * (output device, "mute all", video off, nameplates): a re-render applies them.
+ */
+const DOCK_DISPLAY_PATHS = new Set([
+  'client.audioSink',
+  'client.muteAll',
+  'client.disableVideo',
+  'client.nameplates',
+]);
+
 /** Ideal capture size for the camera. The dock shows small tiles. */
 const VIDEO_IDEAL_WIDTH = 640;
 const VIDEO_IDEAL_HEIGHT = 480;
@@ -160,9 +171,7 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     return game.user?.id ?? game.userId ?? '';
   }
 
-  /* -------------------------------------------- */
-  /*  Connection                                  */
-  /* -------------------------------------------- */
+  // ==== Connection ====
 
   /**
    * Called by AVMaster before every connect; only the first call does work.
@@ -271,9 +280,7 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     return wasConnected;
   }
 
-  /* -------------------------------------------- */
-  /*  Device discovery                            */
-  /* -------------------------------------------- */
+  // ==== Device discovery ====
 
   override async getAudioSinks(): Promise<Record<string, string>> {
     return this.#getSourcesOfType('audiooutput');
@@ -303,13 +310,11 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     }
   }
 
-  /* -------------------------------------------- */
-  /*  Track manipulation                          */
-  /* -------------------------------------------- */
+  // ==== Track manipulation ====
 
   /**
    * The local user plus, while connected to the SFU, every other active
-   * Foundry user, like core SimplePeer (which opens a peer to each active
+   * Foundry user, matching the default client's dock (a tile per active
    * user). A peer that sends no media still gets a tile (avatar, nameplate,
    * GM controls). Only active users are listed: CameraViews cannot render a
    * tile for an inactive or unknown user id.
@@ -448,9 +453,7 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     }
   }
 
-  /* -------------------------------------------- */
-  /*  Settings and configuration                  */
-  /* -------------------------------------------- */
+  // ==== Settings and configuration ====
 
   /** React to AVSettings changes (devices, voice mode, mute, output). */
   override onSettingsChanged(changed: object): void {
@@ -475,7 +478,7 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
       // AVMaster starts voice detection only after connect; a switch to (or
       // from) voice activation must restart (or stop) the level reports.
       // Pass the current mode: `changed` lacks it when only `muted` changed.
-      this.master._initializeUserVoiceDetection?.(mode);
+      this.#restartVoiceDetection(mode);
     }
 
     const hiddenChange = [...keys].some(
@@ -483,13 +486,10 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     );
     if (hiddenChange) this.toggleVideo(this.#canShareVideo());
 
-    const renderChange = [
-      'client.audioSink',
-      'client.muteAll',
-      'client.disableVideo',
-      'client.nameplates',
-    ].some((k) => keys.has(k));
-    if (sourceChange || renderChange) this.render();
+    // New devices mean new tracks in the tiles; display settings need a redraw.
+    let redraw = sourceChange;
+    for (const path of DOCK_DISPLAY_PATHS) redraw ||= keys.has(path);
+    if (redraw) this.render();
   }
 
   /**
@@ -507,18 +507,26 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     }
 
     // Voice detection holds the old levels stream; re-read it.
-    this.master._initializeUserVoiceDetection?.(this.settings.client?.voice?.mode ?? 'ptt');
+    this.#restartVoiceDetection(this.settings.client?.voice?.mode ?? 'ptt');
     this.render();
   }
 
-  /* -------------------------------------------- */
-  /*  Rendering                                   */
-  /* -------------------------------------------- */
+  /**
+   * Restart core voice detection for `mode`. Restarting detection clears the
+   * local speaking indicator, so set it back to the current broadcast state.
+   */
+  #restartVoiceDetection(mode: string): void {
+    this.master._initializeUserVoiceDetection?.(mode);
+    const views = typeof ui !== 'undefined' ? ui.webrtc : undefined;
+    views?.setUserIsSpeaking?.(this.#userId, this.master.broadcasting === true);
+  }
+
+  // ==== Rendering ====
 
   /**
    * Re-render the camera views, coalescing bursts of track changes into one
-   * render. Uses AVMaster#render where present (v13, and v14 per the LiveKit
-   * client) and falls back to ui.webrtc (CameraViews).
+   * render. Uses AVMaster#render (core v13 and v14.368 both define it) and,
+   * defensively, falls back to ui.webrtc (CameraViews).
    */
   render(): void {
     if (this.#renderQueued) return;
@@ -534,9 +542,7 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     });
   }
 
-  /* -------------------------------------------- */
-  /*  Internals                                   */
-  /* -------------------------------------------- */
+  // ==== Internals ====
 
   #canShareAudio(): boolean {
     const self = this.#userId;
