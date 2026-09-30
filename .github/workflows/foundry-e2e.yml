@@ -1,0 +1,207 @@
+name: E2E (Foundry)
+
+# The module inside a REAL Foundry VTT server (felddy/foundryvtt image) with
+# the real Rust SFU: it loads and replaces core A/V, its settings, menu and
+# AppV2 dialogs work, and a GM and a player exchange live audio and video.
+# See tests/e2e/foundry/README.md.
+#
+# Needs a Foundry license, so it runs only where the repository secrets exist
+# (FOUNDRY_USERNAME + FOUNDRY_PASSWORD; FOUNDRY_LICENSE_KEY and
+# FOUNDRY_ADMIN_KEY optional). Fork PRs, Dependabot PRs and repos without the
+# secrets skip the Foundry job: the preflight job reports has_secrets=false,
+# and says so in a warning annotation and the run's job summary, so a skip is
+# never mistaken for a pass. Until this workflow has a green 14.368 run, the
+# Foundry tier is not evidence that the module works on v14.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "server/**"
+      - "lang/**"
+      - "styles/**"
+      - "templates/**"
+      - "tests/e2e/**"
+      - "module.json"
+      - "package.json"
+      - "bun.lock"
+      - "vite.config.ts"
+      - "playwright.foundry.config.ts"
+      - ".github/workflows/foundry-e2e.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "server/**"
+      - "lang/**"
+      - "styles/**"
+      - "templates/**"
+      - "tests/e2e/**"
+      - "module.json"
+      - "package.json"
+      - "bun.lock"
+      - "vite.config.ts"
+      - "playwright.foundry.config.ts"
+      - ".github/workflows/foundry-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Check for Foundry secrets
+    runs-on: ubuntu-latest
+    outputs:
+      has_secrets: ${{ steps.check.outputs.has_secrets }}
+    steps:
+      - id: check
+        env:
+          FOUNDRY_USERNAME: ${{ secrets.FOUNDRY_USERNAME }}
+          FOUNDRY_PASSWORD: ${{ secrets.FOUNDRY_PASSWORD }}
+          # A PR from a fork never gets secrets; say so instead of failing.
+          SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          skip() {
+            echo "::warning title=Foundry e2e SKIPPED::$1 The module was NOT tested inside Foundry in this run."
+            {
+              echo "## Foundry e2e SKIPPED"
+              echo
+              echo "$1"
+              echo
+              echo "The module was **not** tested inside a real Foundry server in this run;"
+              echo "a green check here means only that the job was skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+          }
+          if [[ "${SAME_REPO}" != "true" ]]; then
+            skip "Pull request from a fork: no repository secrets."
+          elif [[ -z "${FOUNDRY_USERNAME}" || -z "${FOUNDRY_PASSWORD}" ]]; then
+            skip "The FOUNDRY_USERNAME / FOUNDRY_PASSWORD secrets are not set."
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  foundry:
+    name: Foundry ${{ matrix.foundry }}
+    needs: preflight
+    if: needs.preflight.outputs.has_secrets == 'true'
+    runs-on: ubuntu-latest
+    # One license runs one Foundry server at a time: serialize the Foundry
+    # jobs of every run (queued, never cancelled mid-run, which could leave a
+    # session open). Only this job joins the group, so preflight and skip-only
+    # runs never wait for, or displace, a run that holds the license. GitHub
+    # keeps one pending job per group: a newer queued job supersedes an older
+    # pending one.
+    concurrency:
+      group: foundry-e2e-license
+      cancel-in-progress: false
+    # Worst case: uncached SFU build (~12 min) + Foundry download (<= 15 min)
+    # + the suite, which playwright.foundry.config.ts stops at globalTimeout
+    # (35 min) so its report is still written and uploaded.
+    timeout-minutes: 75
+    # The v13 leg reports but does not gate: module.json keeps minimum "13"
+    # only while it passes (Stage 5A decides).
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      # Same license for every leg: one Foundry server at a time.
+      max-parallel: 1
+      matrix:
+        include:
+          - foundry: "14.368"
+            experimental: false
+          - foundry: "13.351"
+            experimental: true
+    env:
+      FOUNDRY_VERSION: ${{ matrix.foundry }}
+      FOUNDRY_URL: http://127.0.0.1:30000
+    steps:
+      - uses: actions/checkout@v7
+
+      # The SFU, built as in server-ci.yml / e2e.yml.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - name: Build SFU (release)
+        working-directory: server
+        run: cargo build --release
+
+      # Playwright runs under `node`; pin the version the suite is validated on.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build module bundle
+        run: bun run build
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Admin key and paths
+        env:
+          ADMIN_KEY_SECRET: ${{ secrets.FOUNDRY_ADMIN_KEY }}
+        run: |
+          # The admin password only guards this throwaway server: use the
+          # secret when set, else a random one.
+          key="${ADMIN_KEY_SECRET:-$(openssl rand -hex 24)}"
+          echo "::add-mask::${key}"
+          {
+            echo "FOUNDRY_ADMIN_KEY=${key}"
+            echo "FOUNDRY_E2E_DATA_DIR=${RUNNER_TEMP}/foundry-data"
+            echo "FOUNDRY_E2E_CACHE_DIR=${RUNNER_TEMP}/foundry-cache"
+          } >> "$GITHUB_ENV"
+
+      # Opt-in (repository variable FOUNDRY_E2E_CACHE=true): the cached archive
+      # is the licensed Foundry distribution, and a pull request's workflow can
+      # restore caches of the default branch. See tests/e2e/foundry/README.md.
+      - name: Cache Foundry release archive
+        if: vars.FOUNDRY_E2E_CACHE == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/foundry-cache
+          key: foundryvtt-release-${{ matrix.foundry }}
+
+      - name: Pull Foundry image
+        run: docker pull "ghcr.io/felddy/foundryvtt:${FOUNDRY_VERSION}"
+
+      - name: Start Foundry
+        env:
+          FOUNDRY_USERNAME: ${{ secrets.FOUNDRY_USERNAME }}
+          FOUNDRY_PASSWORD: ${{ secrets.FOUNDRY_PASSWORD }}
+          FOUNDRY_LICENSE_KEY: ${{ secrets.FOUNDRY_LICENSE_KEY }}
+        run: tests/e2e/foundry/scripts/run-foundry.sh start
+
+      - name: Run Foundry e2e suite
+        env:
+          FOUNDRY_LICENSE_KEY: ${{ secrets.FOUNDRY_LICENSE_KEY }}
+        run: bunx playwright test -c playwright.foundry.config.ts
+
+      # Printed to the (secret-masked) job log rather than uploaded.
+      - name: Foundry container log
+        if: always()
+        run: docker logs --tail 400 mediasoup-vtt-foundry-e2e 2>&1 || true
+
+      - name: Stop Foundry
+        if: always()
+        run: tests/e2e/foundry/scripts/run-foundry.sh stop
+
+      # Never the data dir: it holds Config/license.json. Test contexts never
+      # type the license or admin key (only untraced global setup does), so
+      # the traces in test-results/ hold neither.
+      - name: Upload report, page dumps and SFU log
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: foundry-e2e-${{ matrix.foundry }}
+          path: |
+            test-results/foundry-e2e/
+            test-results/e2e-logs/sfu-foundry.log
+          retention-days: 14

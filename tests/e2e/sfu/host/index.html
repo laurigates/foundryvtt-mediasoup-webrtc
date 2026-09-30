@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MediaSoupVTT e2e host</title>
+    <style>
+      #camera-views { display: flex; flex-wrap: wrap; gap: 4px; }
+      .camera-view video { background: #222; }
+    </style>
+  </head>
+  <body>
+    <!-- A v14-shaped Foundry stub (foundry-stub.js) boots the real
+         dist/mediasoup-vtt.mjs; see tests/README.md. -->
+    <div id="interface"></div>
+    <section id="camera-views"></section>
+    <script type="module" src="./foundry-stub.js"></script>
+  </body>
+</html>

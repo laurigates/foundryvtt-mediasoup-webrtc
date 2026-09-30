@@ -1,417 +1,123 @@
-# MediaSoup FoundryVTT Plugin - Integration Testing
+# Tests
 
-> **⚠️ DEFERRED — not currently wired up or run in CI.** This Playwright suite
-> predates the Vite migration; it loaded a Rollup-only test bundle
-> (`dist/mediasoup-vtt-test.js`) that no longer exists, and it is excluded from
-> biome linting. `bun run test:e2e` will **not** pass until the suite is
-> re-wired onto the Vite build + a live Foundry harness. The `npm run …`
-> commands below are stale (the project now uses **bun**). The CI test gate is
-> the Vitest unit suite under `tests/unit/`. Re-wiring is tracked as a
-> follow-up issue.
+MediaSoupVTT is tested in tiers. Each tier proves something the one below it
+cannot, and each one's assertions are written so they fail when the behaviour
+breaks: a green run with no media flowing is not possible.
 
-This directory contains a comprehensive integration testing framework for the MediaSoup FoundryVTT plugin. The framework enables testing WebRTC functionality, plugin integration, and server communication without requiring FoundryVTT source code.
+| Tier | Where | Runs | Proves | Needs |
+|------|-------|------|--------|-------|
+| Unit | `tests/unit/` (Vitest, happy-dom) | `bun run test` (part of `just check`); CI `ci.yml` | Client logic against v14-shaped Foundry test doubles (written from the public API pages; AVSettings, AVMaster and CameraViews reduced to the surface the module uses) and a fake signaling socket: the AVClient contract, signaling payloads, pause/resume, reconnect/ICE recovery, the settings UI | nothing |
+| Server | `server/tests/`, `server/src/**` (cargo) | `just server-check`; CI `server-ci.yml` | The Rust SFU's signaling contract end to end over a WebSocket | Rust toolchain |
+| SFU e2e | `tests/e2e/sfu/` (Playwright, Chromium) | `just test-e2e` / `bun run test:e2e`; CI `e2e.yml` | The **real bundle** loads and registers on a v14-shaped Foundry, and **real audio and video flow** browser -> SFU -> browser | a built `dist/` and SFU release binary |
+| Foundry e2e | `tests/e2e/foundry/` (separate `playwright.foundry.config.ts`) | CI `foundry-e2e.yml`, only when Foundry secrets exist | The module inside a real Foundry v14 server | a Foundry license |
 
-## Overview
+## SFU e2e tier (`tests/e2e/sfu/`)
 
-The testing framework provides:
+### What runs
 
-- **Mock FoundryVTT Environment**: Complete simulation of FoundryVTT's APIs and global objects
-- **Browser-based Testing**: Playwright automation with WebRTC support
-- **Server Integration**: Docker Compose setup for MediaSoup server testing  
-- **CI/CD Pipeline**: GitHub Actions workflow for automated testing
+- `global-setup.ts` checks that `dist/` is built (every `esmodules` entry of
+  `dist/module.json` exists), then starts:
+  - the real SFU, `server/target/release/mediasoup-server`, on a free
+    `127.0.0.1` port, with `MEDIASOUP_LISTEN_IP=MEDIASOUP_ANNOUNCED_IP=127.0.0.1`,
+    an auth token and the RTC port range 40000-40099;
+  - a static server that serves a snapshot of `dist/` (copied to
+    `test-results/e2e-dist/`, so a rebuild during the run cannot swap the
+    bundle) at `/modules/mediasoup-vtt/`, the URL Foundry serves an installed
+    module from, and the host page at `/`.
 
-## Architecture
+  It builds nothing: CI builds both beforehand, and `just test-e2e` builds
+  them first. The server's output goes to `test-results/e2e-logs/`.
+- `host/index.html` + `host/foundry-stub.js` is a small stand-in for the
+  Foundry v14 client, written from the public API documentation
+  (foundryvtt.com/api: `foundry.av.AVClient`, `AVMaster`, `AVSettings`,
+  `CameraViews`, `ClientSettings`, `Hooks`) and the behaviour the module
+  relies on; it contains no Foundry core code. It provides `Hooks`,
+  `game.settings` (a `settings` Map; get() throws for unregistered keys),
+  `game.user(s)`/`world`/`i18n` (loaded from the module's `lang/en.json`),
+  an abstract `foundry.av.AVClient` whose abstract methods throw,
+  `AVSettings` (set() persists and reports a diff to AVMaster and the
+  client) and an `AVMaster` that connects (`initialize()` + `connect()`),
+  applies the voice mode, answers the permission checks and turns
+  `broadcast()` into `toggleBroadcast()`. Core's own voice-level analysis and
+  push-to-talk key handling are not reproduced: voice detection is a double
+  that records which levels stream it would watch, and the specs supply its
+  verdict (`__e2e.speak()`) and the key (`__e2e.pushToTalk()`) directly. A
+  CameraViews-like `ui.webrtc` renders a `.camera-view[data-user]
+  video.user-camera` tile per `getConnectedUsers()` id and calls
+  `setUserVideo` on it. The page imports the module's `esmodules` from its
+  `module.json`, fires `init`/`i18nInit`/`setup`, creates AVMaster (which
+  instantiates `CONFIG.WebRTC.clientClass`), and fires `ready`; the spec
+  then calls `AVMaster#connect()`. Probes for the specs are on
+  `window.__e2e`.
+- Each peer is one Foundry user in its own browser context; each test gets its
+  own world id, so its own SFU room. Chromium runs with
+  `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`.
 
-```
-tests/
-├── integration/
-│   ├── setup/
-│   │   ├── mock-foundry.js      # Mock FoundryVTT environment
-│   │   ├── test-sandbox.html    # Browser test page
-│   │   ├── global-setup.js      # Test environment setup
-│   │   └── global-teardown.js   # Test cleanup
-│   ├── specs/
-│   │   ├── plugin-loading.spec.js    # Plugin initialization tests
-│   │   ├── settings-config.spec.js   # Settings UI tests
-│   │   ├── server-connection.spec.js # WebSocket connection tests
-│   │   └── webrtc-media.spec.js      # Media capture tests
-│   └── fixtures/
-│       └── test-data.json        # Test data and mock responses
-├── results/                      # Test output and reports
-└── README.md                     # This file
-```
+### Specs
 
-## Quick Start
+- `module.spec.ts`: the bundle sets `CONFIG.WebRTC.clientClass` to
+  `MediaSoupAVClient` at import time; it extends `foundry.av.AVClient` and
+  overrides every abstract method; AVMaster instantiates it; the three
+  settings, the config menu and the `renderSettingsConfig` hook are
+  registered, and the Settings-page help shows the live connection status.
+- Tiles are read as the client left them: no spec forces a CameraViews
+  render, so the client must re-render by itself when remote tracks arrive,
+  change or go away. A tile check asserts the `<video>` holds the client's
+  stream for that user (not the local capture), is playing, its clock
+  advances, and its pixels (drawn to a canvas) are neither uniform (black
+  frames from a disabled track) nor frozen. Audio checks compare
+  `inbound-rtp` `totalAudioEnergy` too: Chromium's fake microphone beeps, and
+  a disabled track sends silence at the same packet rate.
+- `av.spec.ts`:
+  - two users each consume the other's audio and video; the dock tile plays
+    the remote stream with a real, moving picture; `inbound-rtp` bytes,
+    packets and audio energy grow between two samples, and video frames
+    decode; "mute all" re-renders and mutes the remote tile;
+  - a late joiner receives a peer that was already producing;
+  - mute and hide (through `AVSettings`) disable the local track and pause the
+    remote producer: the paused flag reaches the other peer and its packets
+    and audio energy stop, while the other kind keeps flowing; unmute and
+    show resume them with audible audio and a real picture;
+  - a disabled audio source closes the mic producer (the remote consumer goes
+    away); re-enabling it gives exactly one new audio consumer;
+  - a wrong token fails `connect()` with a notification and no reconnect
+    loop; fixing the setting reconnects;
+  - closing a peer's page removes its tracks from every other peer.
+- `voice.spec.ts`: the broadcast decision is handed to AVMaster directly
+  (push-to-talk key, voice-detection verdict, or a voice-mode change through
+  `AVSettings`) and the module's response is asserted: its mic producer is
+  paused/resumed at the SFU (the other peer sees the paused flag and its
+  decoded audio energy stays flat or grows), the local track follows, voice
+  detection is re-armed on an enabled levels stream when switching to voice
+  activation, and the local speaking indicator is restored after re-arming.
+- `reconnect.spec.ts`: a dedicated SFU (RTC ports 40100-40149) is killed
+  mid-session and restarted; both clients reconnect by themselves, get fresh
+  consumers, and media flows again.
 
-### Prerequisites
+### Running it locally
 
-- Node.js 18+ with npm
-- Docker and Docker Compose (for full integration tests)
-- Python 3 (for HTTP server)
-
-### Installation
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   npm run test:install  # Install Playwright browsers
-   ```
-
-2. **Build the plugin:**
-   ```bash
-   npm run build
-   ```
-
-3. **Run tests:**
-   ```bash
-   # Run all integration tests
-   npm run test:integration
-   
-   # Run with browser UI (for debugging)
-   npm run test:headed
-   
-   # Run in debug mode
-   npm run test:debug
-   ```
-
-## Test Categories
-
-### 1. Plugin Loading Tests (`plugin-loading.spec.js`)
-
-Tests basic plugin initialization and FoundryVTT integration:
-
-- ✅ Mock environment setup
-- ✅ MediaSoup client library loading
-- ✅ Plugin initialization lifecycle
-- ✅ Settings registration
-- ✅ Hook system integration
-- ✅ Error handling for missing dependencies
-
-### 2. Settings Configuration Tests (`settings-config.spec.js`)
-
-Tests the settings UI and configuration management:
-
-- ✅ Settings modal display
-- ✅ Form validation and input handling
-- ✅ Settings persistence
-- ✅ Device enumeration
-- ✅ Setting change callbacks
-
-### 3. Server Connection Tests (`server-connection.spec.js`)
-
-Tests WebSocket connectivity and signaling protocol:
-
-- ✅ WebSocket connection establishment
-- ✅ Connection state management
-- ✅ Error handling for invalid URLs
-- ✅ Reconnection logic
-- ✅ Resource cleanup on disconnect
-
-### 4. WebRTC Media Tests (`webrtc-media.spec.js`)
-
-Tests media capture and WebRTC functionality:
-
-- ✅ Media device enumeration
-- ✅ Audio/video stream capture
-- ✅ Device constraint handling
-- ✅ Media access permission management
-- ✅ Stream cleanup and disposal
-
-## Mock Environment
-
-### Mock FoundryVTT Objects
-
-The testing framework provides complete mocks for:
-
-- **`window.game`**: Game state, settings, users
-- **`window.ui`**: Notifications, player list, scene controls
-- **`window.Hooks`**: Event system for plugin lifecycle
-- **`window.$`**: jQuery-compatible DOM manipulation
-
-### Mock APIs
-
-Key FoundryVTT APIs are fully mocked:
-
-```javascript
-// Settings API
-game.settings.register(module, key, options)
-game.settings.get(module, key)
-game.settings.set(module, key, value)
-
-// UI Notifications
-ui.notifications.info(message)
-ui.notifications.warn(message)  
-ui.notifications.error(message)
-
-// Hook System
-Hooks.on(event, callback)
-Hooks.once(event, callback)
-Hooks.call(event, ...args)
+```sh
+bun install
+just test-e2e            # builds dist/ and the SFU, then runs the suite
+# or, with both already built:
+bun run test:e2e
+bun run test:e2e:list    # list the specs without running them
+bun run test:e2e:report  # open the last HTML report
 ```
 
-## Browser Configuration
-
-Tests run with WebRTC-optimized browser settings:
-
-### Chrome Flags
-- `--use-fake-ui-for-media-stream` - Skip permission prompts
-- `--use-fake-device-for-media-stream` - Use fake media devices
-- `--auto-accept-camera-and-microphone-capture` - Auto-grant permissions
-- `--disable-web-security` - Allow insecure contexts for testing
-
-### Firefox Preferences
-- `media.navigator.streams.fake: true` - Enable fake media streams
-- `media.navigator.permission.disabled: true` - Skip permission dialogs
-- `media.peerconnection.ice.loopback: true` - Enable loopback ICE
-
-## Server Integration
-
-### Docker Compose Setup
-
-Full integration testing with MediaSoup server:
-
-```bash
-# Start all services (server + tests)
-docker-compose -f docker-compose.test.yml up
-
-# Run only server for local testing
-docker-compose -f docker-compose.test.yml up mediasoup-server
-```
-
-Services included:
-
-- **mediasoup-server**: Rust MediaSoup server implementation
-- **test-server**: HTTP server for serving test files
-- **playwright-tests**: Test runner with browser automation
-
-### Local Server Testing
-
-For testing against a local MediaSoup server:
-
-1. **Start the server:**
-   ```bash
-   cd server
-   cargo run --release
-   ```
-
-2. **Run tests with server integration:**
-   ```bash
-   npm run test:integration
-   ```
-
-## Debugging
-
-### Visual Debugging
-
-Run tests with browser UI visible:
-
-```bash
-npm run test:headed
-```
-
-### Debug Mode
-
-Step through tests interactively:
-
-```bash
-npm run test:debug
-```
-
-### Test Sandbox
-
-Manual testing interface available at:
-```
-http://localhost:3000/tests/integration/setup/test-sandbox.html
-```
-
-Features:
-- Plugin initialization controls
-- Settings modal testing
-- Connection testing
-- Media capture testing
-- Real-time logging
-
-### Browser DevTools
-
-Access browser DevTools during tests:
-
-```javascript
-// Add this to any test for debugging
-await page.pause(); // Opens DevTools and pauses execution
-```
-
-## CI/CD Integration
-
-### GitHub Actions
-
-Automated testing on:
-- ✅ Push to main/develop branches
-- ✅ Pull requests
-- ✅ Manual workflow dispatch
-
-### Test Matrix
-
-Tests run across:
-- **Browsers**: Chromium, Firefox, WebKit
-- **Operating Systems**: Ubuntu, macOS, Windows
-- **Node.js Versions**: 18, 20
-
-### Artifacts
-
-Test results uploaded as artifacts:
-- HTML test reports
-- Screenshots on failure
-- Video recordings
-- Test logs and traces
-
-## Test Data
-
-### Mock Responses (`fixtures/test-data.json`)
-
-Predefined test data including:
-
-- **MediaSoup RTP Capabilities**: Codec definitions for media negotiation
-- **Transport Parameters**: ICE/DTLS configuration for WebRTC
-- **Mock Devices**: Fake audio/video devices for testing
-- **User Data**: Test users and settings
-
-### Custom Test Scenarios
-
-Create custom test scenarios:
-
-```javascript
-// Load test data
-const testData = await import('./fixtures/test-data.json');
-
-// Use mock signaling responses
-await page.evaluate((responses) => {
-  window.mockSignalingResponses = responses;
-}, testData.signaling.mockResponses);
-```
-
-## Performance Testing
-
-### Load Testing
-
-Test multiple concurrent connections:
-
-```javascript
-test('should handle multiple users', async ({ browser }) => {
-  const contexts = await Promise.all([
-    browser.newContext(),
-    browser.newContext(), 
-    browser.newContext()
-  ]);
-  
-  // Test concurrent plugin instances
-});
-```
-
-### Memory Leak Detection
-
-Monitor resource cleanup:
-
-```javascript
-// Track WebRTC objects
-const rtcStats = await page.evaluate(() => ({
-  producers: window.MediaSoupVTT_Client.producers.size,
-  consumers: window.MediaSoupVTT_Client.consumers.size,
-  transports: /* count transports */
-}));
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **MediaSoup server not starting**
-   - Check Rust installation: `cargo --version`
-   - Verify port availability: `lsof -i :4443`
-   - Review server logs in Docker Compose
-
-2. **Browser permission errors**
-   - Ensure proper browser flags in playwright.config.js
-   - Check that fake media devices are enabled
-   - Verify HTTPS context for getUserMedia
-
-3. **Test timeouts**
-   - Increase timeout values in test configuration
-   - Check network connectivity to test server
-   - Review browser console for JavaScript errors
-
-4. **Plugin loading failures**
-   - Verify plugin build completed: `ls -la dist/`
-   - Check for ES module compatibility issues
-   - Review mock environment initialization
-
-### Debug Logs
-
-Enable verbose logging:
-
-```bash
-# Debug WebRTC specifically  
-WEBRTC_DEBUG=true npm run test:integration
-
-# Debug Playwright
-DEBUG=pw:* npm run test:integration
-
-# Debug MediaSoup server
-RUST_LOG=debug npm run test:integration
-```
-
-### Test Isolation
-
-Ensure tests run independently:
-
-```javascript
-test.beforeEach(async ({ page }) => {
-  // Clean state before each test
-  await page.evaluate(() => {
-    // Reset global state
-    if (window.MediaSoupVTT_Client) {
-      window.MediaSoupVTT_Client.disconnect();
-    }
-  });
-});
-```
-
-## Contributing
-
-### Adding New Tests
-
-1. **Create test file** in `tests/integration/specs/`
-2. **Follow naming convention**: `feature-name.spec.js`
-3. **Include test description** and categorization
-4. **Add mock data** to `fixtures/test-data.json` if needed
-5. **Update this README** with new test coverage
-
-### Test Structure
-
-```javascript
-import { test, expect } from '@playwright/test';
-
-test.describe('Feature Name', () => {
-  test.beforeEach(async ({ browser }) => {
-    // Setup
-  });
-  
-  test('should do something specific', async () => {
-    // Test implementation
-  });
-  
-  test.afterEach(async () => {
-    // Cleanup
-  });
-});
-```
-
-### Mock Guidelines
-
-- **Keep mocks minimal** but complete enough for testing
-- **Match FoundryVTT APIs** as closely as possible
-- **Provide debugging helpers** for test development
-- **Document mock limitations** and assumptions
-
-## License
-
-This testing framework is part of the MediaSoup FoundryVTT plugin and follows the same MIT license.
+- Browser: Playwright's own Chromium (`bunx playwright install chromium`).
+  To use another Chromium binary, e.g. a preinstalled one whose revision
+  differs from the one this Playwright version pins, set
+  `PW_CHROMIUM_PATH=/path/to/chrome`.
+- Other overrides: `E2E_SFU_BINARY` (the server binary) and `E2E_DIST_DIR`
+  (the module build; point it at a deliberately broken copy to check that the
+  specs catch the break).
+- The SFU build needs the mediasoup worker's C++ toolchain; see
+  `server/README.md`. Offline, pre-fetch the meson subprojects and set
+  `MESON_PACKAGE_CACHE_DIR`.
+
+### Limits
+
+The host page is a stub: it proves the bundle against the v14 API shapes and
+the real SFU, not against Foundry itself (its sockets, user activity, the real
+CameraViews template). That is the Foundry e2e tier's job.

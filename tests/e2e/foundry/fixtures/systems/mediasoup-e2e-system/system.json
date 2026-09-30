@@ -1,0 +1,23 @@
+{
+  "id": "mediasoup-e2e-system",
+  "title": "MediaSoupVTT E2E System",
+  "description": "A code-free game system for the MediaSoupVTT Foundry e2e tests. It exists only so the fixture world has a system; it registers no scripts, styles or packs.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "MediaSoupVTT tests"
+    }
+  ],
+  "documentTypes": {
+    "Actor": {
+      "character": {}
+    },
+    "Item": {
+      "item": {}
+    }
+  }
+}

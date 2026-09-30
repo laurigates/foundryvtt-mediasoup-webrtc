@@ -1,0 +1,73 @@
+name: E2E (SFU)
+
+# Playwright e2e tier: the real module bundle (dist/mediasoup-vtt.mjs) runs in
+# Chromium with fake camera/microphone on a v14-shaped Foundry stub page and
+# exchanges audio/video through the real Rust SFU (server/). No Foundry license
+# or secrets needed, so it runs on every PR, forks included.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a PR supersedes the older run; runs on main all finish, so
+# every main commit gets an e2e result.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  sfu:
+    name: Playwright vs real SFU
+    runs-on: ubuntu-latest
+    # An uncached mediasoup-sys build takes ~12 min; the suite stops itself
+    # at playwright.config.ts globalTimeout (20 min) and writes its report.
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      # The SFU, built the same way as in server-ci.yml (mediasoup-sys builds
+      # the C++ worker with its own meson/ninja).
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - name: Build SFU (release)
+        working-directory: server
+        run: cargo build --release
+
+      # Playwright runs under `node` (its bin's shebang); pin the version the
+      # suite is validated on (global WebSocket, import.meta.dirname).
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build module bundle
+        run: bun run build
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run e2e suite
+        run: bun run test:e2e
+
+      - name: Upload Playwright report and SFU logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            test-results/playwright-report/
+            test-results/e2e/
+            test-results/e2e-logs/
+          retention-days: 14

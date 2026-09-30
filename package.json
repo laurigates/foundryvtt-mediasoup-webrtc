@@ -7,14 +7,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/sfu/tsconfig.json && tsc --noEmit -p tests/e2e/foundry/tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:e2e:report": "playwright show-report test-results/playwright-report",
     "test:server": "cd server && cargo test",
+    "build:server": "cd server && cargo build --release",
     "check": "bun run typecheck && bun run build && bun run lint && bun run test"
   },
   "keywords": [
@@ -37,6 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
     "fake-mediastreamtrack": "^2.2.1",
     "happy-dom": "^20.14.5",
     "typescript": "^7.0.2",
