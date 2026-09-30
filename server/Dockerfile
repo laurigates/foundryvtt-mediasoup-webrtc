@@ -1,13 +1,20 @@
-# Multi-stage build for optimized production image
-FROM rust:1.82-bullseye AS builder
+# Multi-stage build for optimized production image.
+#
+# The mediasoup worker (built from C++ by the mediasoup-sys crate) needs a
+# C++20 compiler and Python >= 3.10, so both stages use Debian bookworm.
+FROM rust:1-bookworm AS builder
 
-# Install system dependencies needed by mediasoup-sys
-RUN apt-get update && apt-get install -y \
+# System dependencies needed by the mediasoup-sys build script. It pip-installs
+# `invoke`, `meson` and `ninja` into its own OUT_DIR with `pip install --target`.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
-    cmake \
     && rm -rf /var/lib/apt/lists/*
+
+# bookworm marks the system Python as externally managed (PEP 668); allow the
+# build script's pip installs in this throwaway builder stage.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Install rustfmt which is needed by mediasoup-sys build script
 RUN rustup component add rustfmt
@@ -18,7 +25,8 @@ WORKDIR /app
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Create a dummy main.rs to build dependencies
+# Create a dummy main.rs to build (and cache) dependencies, including the
+# mediasoup worker, in their own layer.
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Build dependencies
@@ -27,16 +35,17 @@ RUN cargo build --release && rm -rf src target/release/deps/mediasoup_server*
 # Copy source code
 COPY src ./src
 
-# Build application
-RUN cargo build --release
+# Build application. `touch` makes sure cargo sees the real sources as newer
+# than the dummy build above (COPY preserves the context's mtimes).
+RUN touch src/main.rs src/lib.rs && cargo build --release
 
 # Runtime stage
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Install runtime dependencies including netcat for health checks
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    netcat \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

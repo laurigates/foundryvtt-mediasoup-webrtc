@@ -28,8 +28,13 @@ format:
 test:
     bun run test
 
-# Run the Playwright integration suite (needs a live Foundry harness on :30000).
-test-e2e:
+# Build the Rust SFU release binary the e2e suite runs (server/target/release/mediasoup-server).
+server-build:
+    cd server && cargo build --release
+
+# Run the Playwright SFU e2e suite: the real bundle in Chromium (fake camera/mic) against the
+# real SFU. Builds the bundle and the server first. PW_CHROMIUM_PATH overrides the browser.
+test-e2e: build server-build
     bun run test:e2e
 
 # Typecheck + build + lint + test — the local CI gate for the module.

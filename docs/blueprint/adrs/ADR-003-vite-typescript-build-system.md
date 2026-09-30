@@ -80,3 +80,12 @@ unaffected; it gains a `cargo fmt`/`clippy`/`test` CI job (`server-ci.yml`).
   re-wired onto the Vite build — tracked as a follow-up issue.
 - Green build/type/lint/unit gates do **not** exercise real-time WebRTC A/V;
   that still requires a live Foundry + running SFU.
+
+## Update (2026-09-30)
+
+The deferred Playwright suite (`tests/integration/`) was removed. It mocked
+`mediasoup-client` and fired pre-v13 hook shapes, so it could not catch the
+real breakages. It is replaced by two Playwright tiers built on the Vite
+bundle: `tests/e2e/sfu/` (every PR, real SFU) and `tests/e2e/foundry/` (real
+Foundry, when license secrets exist). See `tests/README.md` and
+[ADR-004](ADR-004-foundry-avclient-integration.md).

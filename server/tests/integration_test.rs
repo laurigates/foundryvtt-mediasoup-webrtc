@@ -22,6 +22,10 @@ async fn test_server_startup() {
                 ip: "127.0.0.1".to_string(),
                 announced_ip: None,
             }],
+            enable_udp: true,
+            enable_tcp: true,
+            prefer_udp: true,
+            allow_unannounced: false,
         },
         auth_token: None,
         tls: None,
@@ -100,4 +104,50 @@ async fn test_outgoing_notification_serialization() {
     assert_eq!(value["kind"], "video");
     // A notification has no requestId (it does not expect a response).
     assert!(value.get("requestId").is_none());
+}
+
+#[test]
+fn test_incoming_message_parse_keeps_request_id_on_shape_errors() {
+    // Valid JSON, wrong shape: the requestId survives for the error reply.
+    let err = IncomingMessage::parse(r#"{"type": 42, "requestId": "req_9"}"#)
+        .expect_err("numeric type must not parse");
+    assert_eq!(err.request_id.as_deref(), Some("req_9"));
+    assert!(
+        err.error.starts_with("Malformed signaling frame"),
+        "{}",
+        err.error
+    );
+
+    // Missing type.
+    let err = IncomingMessage::parse(r#"{"requestId": "req_10"}"#).expect_err("missing type");
+    assert_eq!(err.request_id.as_deref(), Some("req_10"));
+
+    // Not JSON at all: no requestId to recover.
+    let err = IncomingMessage::parse("not json").expect_err("invalid JSON");
+    assert_eq!(err.request_id, None);
+    assert!(err.error.contains("invalid JSON"), "{}", err.error);
+
+    // A JSON array is not an envelope.
+    let err = IncomingMessage::parse("[1, 2]").expect_err("array");
+    assert_eq!(err.request_id, None);
+
+    // Well-formed frames still parse.
+    let ok = IncomingMessage::parse(r#"{"type": "getProducers", "requestId": "req_11"}"#)
+        .expect("valid frame");
+    assert_eq!(ok.msg_type, "getProducers");
+    assert_eq!(ok.request_id.as_deref(), Some("req_11"));
+}
+
+#[test]
+fn test_error_reply_serialization() {
+    let with_id = OutgoingMessage::error_reply(Some("req_1".to_string()), "bad".to_string());
+    assert_eq!(
+        serde_json::to_value(&with_id).unwrap(),
+        json!({ "requestId": "req_1", "error": "bad" })
+    );
+    let without_id = OutgoingMessage::error_reply(None, "bad".to_string());
+    assert_eq!(
+        serde_json::to_value(&without_id).unwrap(),
+        json!({ "error": "bad" })
+    );
 }

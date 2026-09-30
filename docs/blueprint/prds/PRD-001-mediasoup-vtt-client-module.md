@@ -36,82 +36,91 @@ the recordings without relying on cloud providers.
 
 ## Requirements
 
+From the release after 0.7.x, the module is a Foundry AVClient ([ADR-004](../adrs/ADR-004-foundry-avclient-integration.md)):
+core AVMaster, CameraViews and AVSettings provide the lifecycle and the UI, and
+the requirements below are met through them.
+
 ### Connection Management
 
 | ID         | Requirement                                                                                                                                | Priority |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| FR-CON-001 | Users shall configure the WebSocket URL of their MediaSoup server in module settings.                                                      | Must     |
-| FR-CON-002 | Users shall be able to manually initiate a connection via a scene control button.                                                          | Must     |
-| FR-CON-003 | Auto-connect on world load shall be a configurable option.                                                                                 | Should   |
-| FR-CON-004 | The client shall implement the WebSocket signaling protocol (join room, load router RTP caps, create/connect send and receive transports). | Must     |
-| FR-CON-005 | Connection status (disconnected / connecting / connected / error) shall be surfaced in the UI.                                             | Must     |
-| FR-CON-006 | The client shall attempt graceful reconnection after unexpected disconnections.                                                            | Should   |
+| FR-CON-001 | The GM shall configure the WebSocket URL (and auth token) of the MediaSoup server in the module's world settings.                          | Must     |
+| FR-CON-002 | The client shall connect when core A/V is enabled (conference mode not Disabled); core AVMaster starts and stops the connection.           | Must     |
+| FR-CON-003 | *(Withdrawn.)* A separate auto-connect option is not needed; core connects on world load when A/V is enabled.                               | —        |
+| FR-CON-004 | The client shall implement the WebSocket signaling protocol (authenticate into the world's room, load router RTP caps, create/connect send and receive transports). | Must |
+| FR-CON-005 | Connection status shall be surfaced in the UI (the module's section of the Settings page; notifications on errors).                         | Must     |
+| FR-CON-006 | The client shall reconnect after unexpected disconnections (backoff) and restart ICE on transport loss.                                    | Should   |
 
 ### Local Media Management
 
-| ID         | Requirement                                                                                        | Priority |
-| ---------- | -------------------------------------------------------------------------------------------------- | -------- |
-| FR-LMM-001 | The client shall request browser permission for microphone and camera on first use.                | Must     |
-| FR-LMM-002 | Users shall be able to select preferred audio and video input devices when multiple are available. | Must     |
-| FR-LMM-003 | The client shall capture audio and video from selected devices and create MediaSoup producers.     | Must     |
-| FR-LMM-004 | Scene controls shall expose mute/unmute (microphone) and camera on/off toggle buttons.             | Must     |
-| FR-LMM-005 | A local camera preview shall be displayed as an overlay (optional but implemented).                | Should   |
+| ID         | Requirement                                                                                                  | Priority |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | -------- |
+| FR-LMM-001 | The client shall request browser permission for microphone and camera when A/V connects.                     | Must     |
+| FR-LMM-002 | The client shall capture from the devices chosen in core Configure Audio/Video and follow changes to them.   | Must     |
+| FR-LMM-003 | The client shall create MediaSoup producers for the captured audio and video.                                | Must     |
+| FR-LMM-004 | Core mute/hide, push-to-talk and voice activation shall pause and resume the producers at the SFU.           | Must     |
+| FR-LMM-005 | *(Withdrawn.)* The local preview is core's own dock tile; the module adds no overlay.                        | —        |
 
 ### Remote Media Management
 
-| ID         | Requirement                                                                                                   | Priority |
-| ---------- | ------------------------------------------------------------------------------------------------------------- | -------- |
-| FR-RMM-001 | The client shall receive server notifications for new remote producers and create consumers automatically.    | Must     |
-| FR-RMM-002 | Remote audio tracks shall play automatically; remote video tracks shall render in the FoundryVTT player list. | Must     |
-| FR-RMM-003 | The client shall clean up media elements when remote users leave or disable their streams.                    | Must     |
-| FR-RMM-004 | Producer pause/resume state changes from the server shall be reflected in the UI.                             | Should   |
+| ID         | Requirement                                                                                                    | Priority |
+| ---------- | -------------------------------------------------------------------------------------------------------------- | -------- |
+| FR-RMM-001 | The client shall receive new remote producers (including those that existed before it joined) and consume them. | Must     |
+| FR-RMM-002 | Remote audio and video shall play in core's camera dock (CameraViews via `setUserVideo`).                     | Must     |
+| FR-RMM-003 | The client shall drop remote tracks when remote users leave or close their producers.                         | Must     |
+| FR-RMM-004 | Remote producer pause/resume shall be reflected in the dock.                                                  | Should   |
 
 ### User Interface
 
-| ID         | Requirement                                                                                                      | Priority |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
-| FR-UIX-001 | A/V controls (connect, mute, camera, settings) shall integrate with FoundryVTT scene controls.                   | Must     |
-| FR-UIX-002 | Remote video feeds shall render inside or adjacent to the FoundryVTT player list without obstructing the canvas. | Must     |
-| FR-UIX-003 | Visual indicators shall convey local mute/camera status, remote user status, and connection state.               | Must     |
-| FR-UIX-004 | Error messages shall be user-friendly and surfaced through the FoundryVTT notification system.                   | Should   |
+| ID         | Requirement                                                                                          | Priority |
+| ---------- | ---------------------------------------------------------------------------------------------------- | -------- |
+| FR-UIX-001 | A/V controls shall be core's (camera dock, Configure Audio/Video); the module adds none of its own.   | Must     |
+| FR-UIX-002 | Remote video shall render in core's camera dock.                                                     | Must     |
+| FR-UIX-003 | Local and remote mute/camera state and speaking indicators shall show through core's dock.           | Must     |
+| FR-UIX-004 | Error messages shall be localized and surfaced through the FoundryVTT notification system.           | Should   |
+| FR-UIX-005 | Dialogs shall be ApplicationV2; render-hook handlers shall work on the `HTMLElement` they receive.   | Must     |
 
 ### Configuration
 
-| ID         | Requirement                                                                              | Priority |
-| ---------- | ---------------------------------------------------------------------------------------- | -------- |
-| FR-CFG-001 | All settings shall be accessible from Game Settings > Module Settings > MediaSoupVTT.    | Must     |
-| FR-CFG-002 | Required setting: MediaSoup Server WebSocket URL.                                        | Must     |
-| FR-CFG-003 | Optional settings: default audio/video devices, auto-connect flag, debug logging toggle. | Could    |
+| ID         | Requirement                                                                                                   | Priority |
+| ---------- | ------------------------------------------------------------------------------------------------------------- | -------- |
+| FR-CFG-001 | Module settings shall be on the Settings page (Configure Settings > MediaSoupVTT), plus a GM-only config menu. | Must     |
+| FR-CFG-002 | Settings: server WebSocket URL and auth token (world), debug logging (client). No others.                     | Must     |
+| FR-CFG-003 | Devices, mute, voice mode and push-to-talk shall stay in core AVSettings, not module settings.                | Must     |
 
 ### Non-Functional Requirements
 
-| ID          | Category      | Requirement                                                                        |
-| ----------- | ------------- | ---------------------------------------------------------------------------------- |
-| NFR-PRF-001 | Performance   | Plugin CPU/memory overhead shall not noticeably degrade FoundryVTT responsiveness. |
-| NFR-PRF-002 | Performance   | Audio latency shall be low enough for natural conversation.                        |
-| NFR-REL-001 | Reliability   | Connections shall remain stable under normal network conditions.                   |
-| NFR-REL-002 | Reliability   | Camera and microphone resources shall be released on disconnect.                   |
-| NFR-CMP-001 | Compatibility | Must support FoundryVTT v13 (module.json: minimum 13, verified 13.348).             |
-| NFR-CMP-002 | Compatibility | Must function in Chromium-based browsers (primary FoundryVTT target).              |
-| NFR-SEC-001 | Security      | WSS and DTLS-SRTP shall be used in production deployments.                         |
-| NFR-SEC-002 | Security      | No sensitive user data shall be persisted beyond session scope.                    |
+| ID          | Category      | Requirement                                                                                          |
+| ----------- | ------------- | ---------------------------------------------------------------------------------------------------- |
+| NFR-PRF-001 | Performance   | Plugin CPU/memory overhead shall not noticeably degrade FoundryVTT responsiveness.                   |
+| NFR-PRF-002 | Performance   | Audio latency shall be low enough for natural conversation.                                          |
+| NFR-REL-001 | Reliability   | Connections shall remain stable under normal network conditions.                                     |
+| NFR-REL-002 | Reliability   | Camera and microphone resources shall be released on disconnect.                                     |
+| NFR-CMP-001 | Compatibility | Minimum v13; v14 (14.368) is the target. `module.json` `verified` is raised only after the Foundry e2e tier passes on that build. |
+| NFR-CMP-002 | Compatibility | Must function in Chromium-based browsers (primary FoundryVTT target).                                |
+| NFR-SEC-001 | Security      | WSS and DTLS-SRTP shall be used in production deployments.                                           |
+| NFR-SEC-002 | Security      | No sensitive user data shall be persisted beyond session scope.                                      |
+| NFR-LIC-001 | Licensing     | No Foundry core code in the repository; test doubles are written from the public API docs.           |
 
 ## Signaling Protocol
 
-The client uses a WebSocket request/response protocol with these message types
-(defined in `src/constants/index.ts`):
+The client uses a WebSocket request/response protocol. The message types are
+defined in `src/constants/index.ts`; each request has a match arm in
+`server/src/server.rs`, and each notification is sent from `server/src/room.rs`.
 
-- `getRouterRtpCapabilities` - Fetch server codec capabilities
-- `createWebRtcTransport` - Create a send or receive transport
-- `connectTransport` - Provide DTLS parameters to the server
-- `produce` - Announce a new local producer (audio or video)
-- `consume` - Request consumption of a remote producer
-- `pauseProducer` / `resumeProducer` - Toggle local stream state
+- Requests: `authenticate` (token, user id, `roomId` = world id),
+  `getRouterRtpCapabilities`, `createWebRtcTransport`, `connectTransport`,
+  `restartIce`, `produce`, `getProducers`, `closeProducer`, `pauseProducer`,
+  `resumeProducer`, `consume`, `consumerResume`, `closeConsumer`.
+- Notifications: `newProducer`, `producerClosed`, `producerPaused`,
+  `producerResumed`.
+- Close code 4001: a newer connection for the same user replaced this one; the
+  client does not reconnect.
 
 ## Dependencies
 
-- `mediasoup-client` ^3.12.5 - Client-side WebRTC and MediaSoup abstractions (imported as a namespace; v3 has no default export)
-- FoundryVTT API (hooks, settings, UI) - Platform integration surface
+- `mediasoup-client` ^3.24 - Client-side WebRTC and MediaSoup abstractions, bundled (imported as a namespace; v3 has no default export)
+- FoundryVTT API (`foundry.av.AVClient`, AVMaster, AVSettings, CameraViews, settings, hooks, ApplicationV2) - Platform integration surface
 - Separate MediaSoup Rust server (see `server/`) - Required for signaling and media forwarding
 
 ## Acceptance Criteria
@@ -121,5 +130,7 @@ The client uses a WebSocket request/response protocol with these message types
    players.
 2. Mute and camera-off toggles work in real time and are reflected in other
    players' UIs.
-3. The server receives RTP audio streams that can be recorded server-side.
-4. The module installs cleanly from the manifest URL on FoundryVTT v13.
+3. The server receives RTP audio streams that can be recorded server-side
+   (recording itself is not implemented yet).
+4. The module installs cleanly from the manifest URL on FoundryVTT v13 and
+   v14, and the Foundry e2e tier passes on the verified build.

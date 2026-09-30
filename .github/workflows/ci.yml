@@ -14,13 +14,13 @@ jobs:
     name: Lint & format (biome)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Biome
         uses: biomejs/setup-biome@v2
         with:
           # Pin to the schema version declared in biome.json. Bump in lockstep
           # via `biome migrate` when upgrading.
-          version: 2.4.15
+          version: 2.5.14
       - name: Biome check
         run: biome check .
 
@@ -28,7 +28,7 @@ jobs:
     name: Typecheck & build (Vite)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
@@ -42,7 +42,7 @@ jobs:
     name: Tests (Vitest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
@@ -54,7 +54,7 @@ jobs:
     name: Security scanning
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans <prev>^..<head>; the parent commit must be present.
           fetch-depth: 0

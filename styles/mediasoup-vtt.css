@@ -1,67 +1,27 @@
 /**
  * MediaSoupVTT CSS Styles
+ *
+ * Loaded through module.json `styles`. Video tiles, mute and push-to-talk are
+ * core CameraViews (MediaSoupVTT is a Foundry AVClient), so this file only
+ * styles the module's own configuration dialog. The Settings-page help box is
+ * styled by src/ui/styles.ts, next to the code that creates it.
  */
 
-.mediasoup-video-container {
-  max-width: 160px;
-  max-height: 120px;
-  margin-top: 5px;
-  overflow: hidden;
-  border-radius: 4px;
-  background-color: #111;
+.mediasoup-config-dialog .mediasoup-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.mediasoup-remote-video,
-.mediasoup-video-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.mediasoup-config-dialog .mediasoup-steps {
+  margin: 0;
+  padding-left: 1.5em;
 }
 
-.mediasoup-video-preview {
-  position: fixed;
-  bottom: 70px;
-  right: 20px;
-  width: 200px;
-  height: 150px;
-  border: 2px solid #555;
-  background-color: black;
-  z-index: 1050;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+.mediasoup-config-dialog .mediasoup-steps li {
+  margin-bottom: 0.25rem;
 }
 
-/* Support both v12 and v13 player list structures */
-#player-list .player .player-name,
-#player-list .player .player-title,
-#player-list .player h3,
-#player-list .player .name,
-#player-list .player label,
-.players-list .player .player-name,
-.players-list .player .player-title,
-.players-list .player h3,
-.players-list .player .name,
-.players-list .player label {
-  position: relative;
-  z-index: 1;
-}
-
-/* Scene control button states */
-#controls ol.main-controls li[data-tool*="mediasoup-vtt"] {
-  transition: all 0.2s ease;
-}
-
-#controls ol.main-controls li[data-tool*="mediasoup-vtt"].active {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-/* Audio/Video button styling */
-#controls ol.main-controls li[data-tool*="mediasoup-vtt-media"] i.fa-microphone-slash,
-#controls ol.main-controls li[data-tool*="mediasoup-vtt-media"] i.fa-video-slash {
-  color: #ff4444;
-}
-
-#controls ol.main-controls li[data-tool*="mediasoup-vtt-media"] i.fa-microphone,
-#controls ol.main-controls li[data-tool*="mediasoup-vtt-media"] i.fa-video {
-  color: #44ff44;
+.mediasoup-config-dialog .mediasoup-gm-only {
+  font-style: italic;
 }

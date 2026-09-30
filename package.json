@@ -7,14 +7,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/e2e/sfu/tsconfig.json && tsc --noEmit -p tests/e2e/foundry/tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:list": "playwright test --list",
+    "test:e2e:report": "playwright show-report test-results/playwright-report",
     "test:server": "cd server && cargo test",
+    "build:server": "cd server && cargo build --release",
     "check": "bun run typecheck && bun run build && bun run lint && bun run test"
   },
   "keywords": [
@@ -32,15 +35,18 @@
   "author": "Lauri Gates",
   "license": "MIT",
   "dependencies": {
-    "mediasoup-client": "^3.12.5"
+    "mediasoup-client": "^3.24.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.15",
-    "@playwright/test": "^1.54.1",
-    "typescript": "^5.7.0",
-    "vite": "^6.0.0",
-    "vite-plugin-static-copy": "^2.2.0",
-    "vitest": "^3.0.0"
+    "@biomejs/biome": "2.5.14",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "fake-mediastreamtrack": "^2.2.1",
+    "happy-dom": "^20.14.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-static-copy": "^4.1.1",
+    "vitest": "^5.0.3"
   },
   "repository": {
     "type": "git",

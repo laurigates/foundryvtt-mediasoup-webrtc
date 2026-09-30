@@ -1,6 +1,6 @@
 use crate::config::{Config, TlsConfig};
 use crate::error::{MediaSoupError, Result};
-use crate::room::{media_kind_str, Peer, Room};
+use crate::room::{CloseRequest, Peer, Room, TransportListenOptions, media_kind_str};
 use crate::signaling::*;
 use dashmap::DashMap;
 use futures_util::stream::SplitStream;
@@ -11,15 +11,90 @@ use mediasoup::worker_manager::WorkerManager;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_rustls::TlsAcceptor;
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
+use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+/// Default interval between server-sent WebSocket pings.
+pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(15);
+
+/// Default number of consecutive pings without any inbound frame (pong or
+/// otherwise) after which a peer is considered dead and dropped.
+pub const DEFAULT_MAX_MISSED_PONGS: u32 = 3;
+
+/// How long a new connection may take to send its `authenticate` frame.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long to wait for the outgoing task to flush a close frame.
+const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Room used when a client authenticates without a `roomId`.
+pub const DEFAULT_ROOM_ID: &str = "default";
+
+/// Longest accepted `roomId` (Foundry world ids are short slugs).
+const MAX_ROOM_ID_LEN: usize = 256;
+
+/// Longest accepted `sessionId`.
+const MAX_SESSION_ID_LEN: usize = 128;
+
+/// Identity established by the `authenticate` handshake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthInfo {
+    user_id: String,
+    room_id: String,
+    /// The client's per-page session id, if it sent one.
+    session_id: Option<String>,
+    /// The client is re-joining after a connection loss (its backoff loop),
+    /// not starting a new session.
+    reconnect: bool,
+    /// The `authenticate` request to answer once the peer has joined its room.
+    request_id: Option<String>,
+}
+
+/// Read a required string field from a request's payload.
+fn required_str<'a>(message: &'a IncomingMessage, field: &str) -> Result<&'a str> {
+    message
+        .payload
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| MediaSoupError::InvalidRequest(format!("Missing {field}")))
+}
+
+/// Extract the room id from an `authenticate` frame. Absent or `null` means
+/// the default room; anything else must be a non-empty string of bounded
+/// length.
+fn room_id_from_auth(message: &IncomingMessage) -> Result<String> {
+    match message.payload.get("roomId") {
+        None | Some(Value::Null) => Ok(DEFAULT_ROOM_ID.to_string()),
+        Some(Value::String(id)) if !id.is_empty() && id.len() <= MAX_ROOM_ID_LEN => Ok(id.clone()),
+        Some(_) => Err(MediaSoupError::InvalidRequest(format!(
+            "Invalid roomId: expected a non-empty string of at most {MAX_ROOM_ID_LEN} bytes"
+        ))),
+    }
+}
+
+/// Extract the optional `sessionId` from an `authenticate` frame. Anything but
+/// a non-empty string of bounded length counts as absent.
+fn session_id_from_auth(message: &IncomingMessage) -> Option<String> {
+    match message.payload.get("sessionId") {
+        Some(Value::String(id)) if !id.is_empty() && id.len() <= MAX_SESSION_ID_LEN => {
+            Some(id.clone())
+        }
+        _ => None,
+    }
+}
 
 /// A stream usable as the transport under a WebSocket connection (plain TCP or
 /// a TLS-wrapped TCP stream).
@@ -61,7 +136,7 @@ fn load_tls_acceptor(tls: &TlsConfig) -> Result<TlsAcceptor> {
         MediaSoupError::Config(format!("Failed to read TLS key {}: {}", tls.key_path, e))
     })?;
 
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_bytes.as_slice())
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(&cert_bytes)
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| MediaSoupError::Config(format!("Invalid TLS certificate: {e}")))?;
     if certs.is_empty() {
@@ -71,10 +146,12 @@ fn load_tls_acceptor(tls: &TlsConfig) -> Result<TlsAcceptor> {
         )));
     }
 
-    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_bytes.as_slice())
-        .map_err(|e| MediaSoupError::Config(format!("Invalid TLS private key: {e}")))?
-        .ok_or_else(|| {
-            MediaSoupError::Config(format!("No private key found in {}", tls.key_path))
+    let key: PrivateKeyDer<'static> =
+        PrivateKeyDer::from_pem_slice(&key_bytes).map_err(|e| match e {
+            pem::Error::NoItemsFound => {
+                MediaSoupError::Config(format!("No private key found in {}", tls.key_path))
+            }
+            e => MediaSoupError::Config(format!("Invalid TLS private key: {e}")),
         })?;
 
     let server_config = RustlsServerConfig::builder_with_provider(Arc::new(
@@ -94,6 +171,8 @@ pub struct MediaSoupServer {
     config: Config,
     worker_manager: CustomWorkerManager,
     rooms: Arc<DashMap<String, Arc<Room>>>,
+    ping_interval: Duration,
+    max_missed_pongs: u32,
 }
 
 impl MediaSoupServer {
@@ -105,10 +184,21 @@ impl MediaSoupServer {
             config,
             worker_manager,
             rooms: Arc::new(DashMap::new()),
+            ping_interval: DEFAULT_PING_INTERVAL,
+            max_missed_pongs: DEFAULT_MAX_MISSED_PONGS,
         })
     }
 
-    /// Run the server
+    /// Override the WebSocket keepalive: a ping every `interval`, and the peer
+    /// is dropped after `max_missed` consecutive pings with no inbound frame.
+    /// Defaults are [`DEFAULT_PING_INTERVAL`] and [`DEFAULT_MAX_MISSED_PONGS`].
+    pub fn with_keepalive(mut self, interval: Duration, max_missed: u32) -> Self {
+        self.ping_interval = interval;
+        self.max_missed_pongs = max_missed.max(1);
+        self
+    }
+
+    /// Bind `config.listen_addr` and run the server
     pub async fn run(self) -> Result<()> {
         let listener = TcpListener::bind(&self.config.listen_addr)
             .await
@@ -118,7 +208,12 @@ impl MediaSoupServer {
                     self.config.listen_addr, e
                 ))
             })?;
+        self.run_with_listener(listener).await
+    }
 
+    /// Run the server on an already-bound listener (lets callers bind port 0
+    /// and read the chosen address first, e.g. in tests).
+    pub async fn run_with_listener(self, listener: TcpListener) -> Result<()> {
         // Build an optional TLS acceptor for native wss:// termination.
         let tls_acceptor = match &self.config.tls {
             Some(tls) => {
@@ -127,7 +222,9 @@ impl MediaSoupServer {
                 Some(acceptor)
             }
             None => {
-                info!("Native TLS disabled; serving ws:// (terminate TLS at a reverse proxy for browsers)");
+                info!(
+                    "Native TLS disabled; serving ws:// (terminate TLS at a reverse proxy for browsers)"
+                );
                 None
             }
         };
@@ -139,11 +236,24 @@ impl MediaSoupServer {
             );
         }
 
-        info!("WebSocket server listening on {}", self.config.listen_addr);
+        let local_addr = listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| self.config.listen_addr.to_string());
+        info!("WebSocket server listening on {}", local_addr);
 
         let server = Arc::new(self);
 
-        while let Ok((stream, addr)) = listener.accept().await {
+        loop {
+            let (stream, addr) = match listener.accept().await {
+                Ok(accepted) => accepted,
+                Err(e) => {
+                    // Transient (e.g. EMFILE): keep serving instead of exiting.
+                    error!("Failed to accept connection: {}", e);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+            };
             let server_clone = server.clone();
             let acceptor = tls_acceptor.clone();
             tokio::spawn(async move {
@@ -162,8 +272,6 @@ impl MediaSoupServer {
                 }
             });
         }
-
-        Ok(())
     }
 
     /// Handle a new WebSocket connection (over plain TCP or TLS).
@@ -175,45 +283,144 @@ impl MediaSoupServer {
 
         // Authenticate before allocating any room/peer resources. On failure we
         // reply with an error and drop the connection (see #118).
-        let user_id = match self.authenticate(&mut ws_receiver, &mut ws_sender).await {
-            Ok(user_id) => user_id,
-            Err(e) => {
+        let auth = match tokio::time::timeout(
+            AUTH_TIMEOUT,
+            self.authenticate(&mut ws_receiver, &mut ws_sender),
+        )
+        .await
+        {
+            Ok(Ok(auth)) => auth,
+            Ok(Err(e)) => {
                 warn!("Authentication failed for {}: {}", addr, e);
                 return Err(e);
             }
+            Err(_) => {
+                warn!("Authentication timed out for {}", addr);
+                return Err(MediaSoupError::InvalidRequest(
+                    "Authentication timed out".to_string(),
+                ));
+            }
         };
+        let AuthInfo {
+            user_id,
+            room_id,
+            session_id,
+            reconnect,
+            request_id,
+        } = auth;
 
         // Create a channel for sending messages to this peer
         let (message_sender, mut message_receiver) = mpsc::unbounded_channel::<OutgoingMessage>();
 
-        // Identity is the authenticated FoundryVTT user id.
-        let peer = Arc::new(Peer::new(user_id, message_sender));
-
-        // Get or create a default room (in production, this would be based on authentication/routing)
-        let room_id = "default".to_string();
-        let room = self.get_or_create_room(&room_id).await?;
-
-        // Add peer to room
-        room.add_peer(peer.clone()).await?;
-
+        // Identity is the client-supplied FoundryVTT user id (see `authenticate`).
+        let peer = Arc::new(Peer::with_session(user_id, session_id, message_sender));
         let peer_id = peer.id.clone();
-        let room_clone = room.clone();
+
+        // Join the room named by the client (one router per room, i.e. per
+        // Foundry world). If the room is released between the lookup and the
+        // join (its last peer left concurrently), we would be stranded in an
+        // orphan router nobody else can reach, so retry with a fresh room.
+        let joined = loop {
+            let room = match self.get_or_create_room(&room_id).await {
+                Ok(room) => room,
+                Err(e) => break Err(e),
+            };
+            if let Err(e) = room.join_peer(peer.clone(), reconnect) {
+                break Err(e);
+            }
+            let still_current = self
+                .rooms
+                .get(&room_id)
+                .is_some_and(|current| Arc::ptr_eq(current.value(), &room));
+            if still_current {
+                break Ok(room);
+            }
+            room.remove_peer(&peer_id);
+        };
+
+        // Answer `authenticate` only now, so a refused join is reported to the
+        // client as a failed authenticate. This is sent before the outgoing
+        // task starts, so it precedes any notification queued since the join.
+        let reply = match &joined {
+            Ok(_) => request_id.map(|id| OutgoingMessage::response(id, serde_json::json!({}))),
+            Err(e) => request_id.map(|id| OutgoingMessage::error(id, e.to_string())),
+        };
+        let replied = match reply {
+            Some(reply) => send_frame(&mut ws_sender, reply).await,
+            None => Ok(()),
+        };
+        let room = match (joined, replied) {
+            (Ok(room), Ok(())) => room,
+            (Ok(room), Err(e)) => {
+                room.remove_peer(&peer_id);
+                self.cleanup_room_if_empty(&room_id);
+                return Err(e);
+            }
+            (Err(e), _) => {
+                warn!("{} could not join room {}: {}", addr, room_id, e);
+                self.cleanup_room_if_empty(&room_id);
+                return Err(e);
+            }
+        };
+
+        // Keepalive: the outgoing task pings every `ping_interval`; any inbound
+        // frame (a pong, or anything else) resets the counter.
+        let missed_pongs = Arc::new(AtomicU32::new(0));
+        let (close_tx, mut close_rx) = oneshot::channel::<Option<CloseRequest>>();
 
         // Spawn task to handle outgoing messages
-        let outgoing_task = {
+        let mut outgoing_task = {
+            let peer = peer.clone();
+            let missed_pongs = missed_pongs.clone();
+            let ping_interval = self.ping_interval;
+            let max_missed = self.max_missed_pongs;
             tokio::spawn(async move {
-                while let Some(message) = message_receiver.recv().await {
-                    let json = match serde_json::to_string(&message) {
-                        Ok(json) => json,
-                        Err(e) => {
-                            error!("Failed to serialize message: {}", e);
-                            continue;
+                let mut ticker =
+                    tokio::time::interval_at(Instant::now() + ping_interval, ping_interval);
+                ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        biased;
+                        close = &mut close_rx => {
+                            if let Ok(Some(request)) = close {
+                                let frame = CloseFrame {
+                                    code: CloseCode::from(request.code),
+                                    reason: request.reason.into(),
+                                };
+                                let _ = ws_sender.send(Message::Close(Some(frame))).await;
+                            }
+                            let _ = ws_sender.close().await;
+                            break;
                         }
-                    };
-
-                    if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
-                        error!("Failed to send message: {}", e);
-                        break;
+                        message = message_receiver.recv() => {
+                            let Some(message) = message else { break };
+                            let json = match serde_json::to_string(&message) {
+                                Ok(json) => json,
+                                Err(e) => {
+                                    error!("Failed to serialize message: {}", e);
+                                    continue;
+                                }
+                            };
+                            if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                                error!("Failed to send message: {}", e);
+                                peer.request_shutdown(None);
+                                break;
+                            }
+                        }
+                        _ = ticker.tick() => {
+                            if missed_pongs.fetch_add(1, Ordering::SeqCst) >= max_missed {
+                                warn!(
+                                    "Peer {} missed {} pings; dropping connection",
+                                    peer.id, max_missed
+                                );
+                                peer.request_shutdown(None);
+                                break;
+                            }
+                            if ws_sender.send(Message::Ping(Default::default())).await.is_err() {
+                                peer.request_shutdown(None);
+                                break;
+                            }
+                        }
                     }
                 }
             })
@@ -221,13 +428,19 @@ impl MediaSoupServer {
 
         // Handle incoming messages
         let incoming_result = self
-            .handle_incoming_messages(&mut ws_receiver, peer.clone(), room.clone())
+            .handle_incoming_messages(&mut ws_receiver, &peer, &room, &missed_pongs)
             .await;
 
-        // Cleanup
-        outgoing_task.abort();
-        if let Err(e) = room_clone.remove_peer(&peer_id).await {
-            error!("Failed to remove peer {}: {}", peer_id, e);
+        // Cleanup: leave the room first so the other peers hear about our
+        // producers closing, then flush a close frame if one was requested
+        // (e.g. we were evicted by a newer connection of the same user).
+        room.remove_peer(&peer_id);
+        let _ = close_tx.send(peer.take_close_request());
+        if tokio::time::timeout(CLOSE_FLUSH_TIMEOUT, &mut outgoing_task)
+            .await
+            .is_err()
+        {
+            outgoing_task.abort();
         }
         // Release the room (and its router) once the last peer has left.
         self.cleanup_room_if_empty(&room_id);
@@ -238,7 +451,7 @@ impl MediaSoupServer {
 
     /// Perform the authentication handshake. The client's first frame must be an
     /// `authenticate` request carrying the shared `token` (when one is
-    /// configured) and `userId`. Returns the authenticated user id.
+    /// configured), `userId` and `roomId`. Returns the authenticated identity.
     ///
     /// This is a deployment-level shared-secret gate (#118). True per-user
     /// FoundryVTT session validation needs a Foundry-side relay to mint signed
@@ -248,7 +461,7 @@ impl MediaSoupServer {
         &self,
         ws_receiver: &mut SplitStream<WebSocketStream<S>>,
         ws_sender: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
-    ) -> Result<String> {
+    ) -> Result<AuthInfo> {
         while let Some(frame) = ws_receiver.next().await {
             let frame = frame?;
             let text = match frame {
@@ -256,12 +469,23 @@ impl MediaSoupServer {
                 Message::Close(_) => {
                     return Err(MediaSoupError::InvalidRequest(
                         "Closed before auth".to_string(),
-                    ))
+                    ));
                 }
                 _ => continue, // ignore pings/binary before auth
             };
 
-            let message: IncomingMessage = serde_json::from_str(&text)?;
+            let message = match IncomingMessage::parse(&text) {
+                Ok(message) => message,
+                Err(e) => {
+                    send_frame(
+                        ws_sender,
+                        OutgoingMessage::error_reply(e.request_id, e.error.clone()),
+                    )
+                    .await?;
+                    return Err(MediaSoupError::InvalidRequest(e.error));
+                }
+            };
+
             if message.msg_type != "authenticate" {
                 let err = "Authentication required: first message must be 'authenticate'";
                 if let Some(request_id) = message.request_id.clone() {
@@ -280,32 +504,47 @@ impl MediaSoupServer {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            if let Err(e) = self.verify_token(provided) {
-                if let Some(request_id) = message.request_id.clone() {
-                    send_frame(ws_sender, OutgoingMessage::error(request_id, e.to_string()))
-                        .await?;
+            let checked = self
+                .verify_token(provided)
+                .and_then(|()| room_id_from_auth(&message));
+            let room_id = match checked {
+                Ok(room_id) => room_id,
+                Err(e) => {
+                    if let Some(request_id) = message.request_id.clone() {
+                        send_frame(ws_sender, OutgoingMessage::error(request_id, e.to_string()))
+                            .await?;
+                    }
+                    return Err(e);
                 }
-                return Err(e);
-            }
+            };
 
             // Identity is the client-supplied FoundryVTT user id; fall back to a
-            // random id if absent so peers remain distinguishable.
+            // random id if absent so peers remain distinguishable. It is NOT
+            // authenticated: anyone holding the shared token can claim any
+            // user id, and so (see `Room::join_peer`) replace that user's
+            // connection. Per-user tokens are the fix (see above).
             let user_id = message
                 .user_id
                 .clone()
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
+            let session_id = session_id_from_auth(&message);
+            let reconnect = message
+                .payload
+                .get("reconnect")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
 
-            if let Some(request_id) = message.request_id.clone() {
-                send_frame(
-                    ws_sender,
-                    OutgoingMessage::response(request_id, serde_json::json!({})),
-                )
-                .await?;
-            }
-
-            debug!("Authenticated user {}", user_id);
-            return Ok(user_id);
+            // The success reply is sent by the caller once the peer has joined
+            // its room, since the join itself can still be refused.
+            debug!("Authenticated user {} for room {}", user_id, room_id);
+            return Ok(AuthInfo {
+                user_id,
+                room_id,
+                session_id,
+                reconnect,
+                request_id: message.request_id.clone(),
+            });
         }
 
         Err(MediaSoupError::InvalidRequest(
@@ -330,19 +569,31 @@ impl MediaSoupServer {
         }
     }
 
-    /// Handle incoming WebSocket messages
+    /// Handle incoming WebSocket messages until the client closes, the socket
+    /// errors, or the peer is asked to shut down (eviction, ping timeout).
     async fn handle_incoming_messages<S: IoStream>(
         &self,
         ws_receiver: &mut SplitStream<WebSocketStream<S>>,
-        peer: Arc<Peer>,
-        room: Arc<Room>,
+        peer: &Arc<Peer>,
+        room: &Arc<Room>,
+        missed_pongs: &AtomicU32,
     ) -> Result<()> {
-        while let Some(message) = ws_receiver.next().await {
-            let message = message?;
+        loop {
+            let frame = tokio::select! {
+                frame = ws_receiver.next() => frame,
+                () = peer.shutdown_requested() => {
+                    debug!("Peer {} shutdown requested", peer.id);
+                    break;
+                }
+            };
+            let Some(frame) = frame else { break };
+            let frame = frame?;
+            // Any inbound frame proves the client is alive.
+            missed_pongs.store(0, Ordering::SeqCst);
 
-            match message {
+            match frame {
                 Message::Text(text) => {
-                    if let Err(e) = self.handle_signaling_message(&text, &peer, &room).await {
+                    if let Err(e) = self.handle_signaling_message(&text, peer, room).await {
                         error!("Error handling signaling message: {}", e);
                     }
                 }
@@ -351,7 +602,7 @@ impl MediaSoupServer {
                     break;
                 }
                 _ => {
-                    debug!("Received non-text message, ignoring");
+                    // Pongs (and pings, which tungstenite answers itself).
                 }
             }
         }
@@ -366,7 +617,16 @@ impl MediaSoupServer {
         peer: &Arc<Peer>,
         room: &Arc<Room>,
     ) -> Result<()> {
-        let message: IncomingMessage = serde_json::from_str(text)?;
+        // Parse to a generic value first so a malformed frame still gets an
+        // error reply (carrying its requestId when it has one) instead of
+        // leaving the client's request pending until it times out.
+        let message = match IncomingMessage::parse(text) {
+            Ok(message) => message,
+            Err(e) => {
+                warn!("Malformed frame from peer {}: {}", peer.id, e.error);
+                return peer.send_message(OutgoingMessage::error_reply(e.request_id, e.error));
+            }
+        };
         debug!(
             "Received message: {} from peer {}",
             message.msg_type, peer.id
@@ -382,9 +642,13 @@ impl MediaSoupServer {
                     .await
             }
             "connectTransport" => self.handle_connect_transport(&message, peer).await,
+            "restartIce" => self.handle_restart_ice(&message, peer, room).await,
             "produce" => self.handle_produce(&message, peer, room).await,
+            "getProducers" => self.handle_get_producers(peer, room),
+            "closeProducer" => self.handle_close_producer(&message, peer, room),
             "consume" => self.handle_consume(&message, peer, room).await,
             "consumerResume" => self.handle_resume_consumer(&message, peer).await,
+            "closeConsumer" => self.handle_close_consumer(&message, peer, room),
             "pauseProducer" => self.handle_pause_producer(&message, peer).await,
             "resumeProducer" => self.handle_resume_producer(&message, peer).await,
             other => Err(MediaSoupError::InvalidRequest(format!(
@@ -412,6 +676,52 @@ impl MediaSoupServer {
         Ok(())
     }
 
+    /// Handle getProducers: every producer in the room except the caller's.
+    fn handle_get_producers(&self, peer: &Arc<Peer>, room: &Arc<Room>) -> Result<Value> {
+        Ok(serde_json::to_value(ProducersResponse {
+            producers: room.list_producers_except(&peer.id),
+        })?)
+    }
+
+    /// Handle closeProducer: close one of the caller's own producers and
+    /// broadcast `producerClosed` to the other peers.
+    fn handle_close_producer(
+        &self,
+        message: &IncomingMessage,
+        peer: &Arc<Peer>,
+        room: &Arc<Room>,
+    ) -> Result<Value> {
+        let producer_id = required_str(message, "producerId")?;
+        room.close_producer(&peer.id, producer_id)?;
+        Ok(serde_json::json!({}))
+    }
+
+    /// Handle closeConsumer: close one of the caller's own consumers.
+    fn handle_close_consumer(
+        &self,
+        message: &IncomingMessage,
+        peer: &Arc<Peer>,
+        room: &Arc<Room>,
+    ) -> Result<Value> {
+        let consumer_id = required_str(message, "consumerId")?;
+        room.close_consumer(&peer.id, consumer_id)?;
+        Ok(serde_json::json!({}))
+    }
+
+    /// Handle restartIce: new ICE parameters for one of the caller's transports.
+    async fn handle_restart_ice(
+        &self,
+        message: &IncomingMessage,
+        peer: &Arc<Peer>,
+        room: &Arc<Room>,
+    ) -> Result<Value> {
+        let transport_id = required_str(message, "transportId")?;
+        let ice_parameters = room.restart_ice(&peer.id, transport_id).await?;
+        Ok(serde_json::to_value(RestartIceResponse {
+            ice_parameters: serde_json::to_value(ice_parameters)?,
+        })?)
+    }
+
     /// Handle getRouterRtpCapabilities request
     async fn handle_get_router_rtp_capabilities(&self, room: &Arc<Room>) -> Result<Value> {
         let capabilities = room.get_rtp_capabilities();
@@ -427,19 +737,19 @@ impl MediaSoupServer {
     ) -> Result<Value> {
         let data: CreateWebRtcTransportData = serde_json::from_value(message.payload_value())?;
 
-        // Use config listen IPs directly
-        let listen_ips = self.config.webrtc.listen_ips.clone();
+        let webrtc = &self.config.webrtc;
+        let listen = TransportListenOptions {
+            listen_ips: webrtc.listen_ips.clone(),
+            enable_udp: webrtc.enable_udp,
+            enable_tcp: webrtc.enable_tcp,
+            prefer_udp: webrtc.prefer_udp,
+            enable_sctp: data.sctp_capabilities.is_some(),
+            // Keep every ICE/DTLS socket inside the firewalled/Docker-mapped
+            // range (#123).
+            port_range: Some(self.config.worker.rtc_min_port..=self.config.worker.rtc_max_port),
+        };
 
-        let transport = room
-            .create_webrtc_transport(
-                &peer.id,
-                listen_ips,
-                true,                             // enable_udp
-                true,                             // enable_tcp
-                true,                             // prefer_udp
-                data.sctp_capabilities.is_some(), // enable_sctp
-            )
-            .await?;
+        let transport = room.create_webrtc_transport(&peer.id, &listen).await?;
 
         Ok(serde_json::to_value(TransportCreatedResponse {
             id: transport.id().to_string(),
@@ -487,6 +797,7 @@ impl MediaSoupServer {
         room: &Arc<Room>,
     ) -> Result<Value> {
         let data: ProduceData = serde_json::from_value(message.payload_value())?;
+        let paused = data.paused;
 
         let kind = match data.kind.as_str() {
             "audio" => MediaKind::Audio,
@@ -494,7 +805,7 @@ impl MediaSoupServer {
             other => {
                 return Err(MediaSoupError::InvalidRequest(format!(
                     "Invalid media kind: {other}"
-                )))
+                )));
             }
         };
 
@@ -507,6 +818,7 @@ impl MediaSoupServer {
                 kind,
                 rtp_parameters,
                 data.app_data,
+                paused,
             )
             .await?;
 
@@ -550,11 +862,7 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let consumer_id = message
-            .payload
-            .get("consumerId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| MediaSoupError::InvalidRequest("Missing consumerId".to_string()))?;
+        let consumer_id = required_str(message, "consumerId")?;
 
         let consumer = peer
             .consumers
@@ -576,11 +884,7 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let producer_id = message
-            .payload
-            .get("producerId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
+        let producer_id = required_str(message, "producerId")?;
 
         let producer = peer
             .producers
@@ -602,11 +906,7 @@ impl MediaSoupServer {
         message: &IncomingMessage,
         peer: &Arc<Peer>,
     ) -> Result<Value> {
-        let producer_id = message
-            .payload
-            .get("producerId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| MediaSoupError::InvalidRequest("Missing producerId".to_string()))?;
+        let producer_id = required_str(message, "producerId")?;
 
         let producer = peer
             .producers
@@ -757,9 +1057,88 @@ impl CustomWorkerManager {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use super::constant_time_eq;
+    use super::{constant_time_eq, load_tls_acceptor};
+    use crate::config::TlsConfig;
+    use crate::error::MediaSoupError;
+    use std::path::PathBuf;
+
+    /// A scratch directory under the system temp dir, removed on drop.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("mediasoup-tls-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).expect("failed to create scratch dir");
+            Self(dir)
+        }
+
+        fn write(&self, name: &str, contents: &str) -> String {
+            let path = self.0.join(name);
+            std::fs::write(&path, contents).expect("failed to write scratch file");
+            path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Generate a throwaway self-signed certificate and its private key as PEM.
+    fn self_signed_pem() -> (String, String) {
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+                .expect("failed to generate self-signed cert");
+        (cert.pem(), signing_key.serialize_pem())
+    }
+
+    fn config_error(result: crate::error::Result<tokio_rustls::TlsAcceptor>) -> String {
+        match result {
+            Err(MediaSoupError::Config(msg)) => msg,
+            Err(other) => panic!("expected a Config error, got {other:?}"),
+            Ok(_) => panic!("expected a Config error, got a TlsAcceptor"),
+        }
+    }
+
+    #[test]
+    fn load_tls_acceptor_accepts_generated_pem_pair() {
+        let dir = ScratchDir::new();
+        let (cert_pem, key_pem) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", &cert_pem),
+            key_path: dir.write("key.pem", &key_pem),
+        };
+        load_tls_acceptor(&tls).expect("generated PEM pair should load");
+    }
+
+    #[test]
+    fn load_tls_acceptor_reports_missing_private_key() {
+        let dir = ScratchDir::new();
+        let (cert_pem, _) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", &cert_pem),
+            // A PEM file holding only a certificate has no private key section.
+            key_path: dir.write("key.pem", &cert_pem),
+        };
+        let msg = config_error(load_tls_acceptor(&tls));
+        assert!(msg.starts_with("No private key found in "), "{msg}");
+    }
+
+    #[test]
+    fn load_tls_acceptor_reports_missing_certificates() {
+        let dir = ScratchDir::new();
+        let (_, key_pem) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", "not a certificate\n"),
+            key_path: dir.write("key.pem", &key_pem),
+        };
+        let msg = config_error(load_tls_acceptor(&tls));
+        assert!(msg.starts_with("No certificates found in "), "{msg}");
+    }
 
     #[test]
     fn constant_time_eq_matches_identical_secrets() {

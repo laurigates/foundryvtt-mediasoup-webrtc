@@ -1,0 +1,8 @@
+# Keep the build context small: the image builds from Cargo.toml, Cargo.lock,
+# src/ and health-check.sh only.
+target/
+tests/
+scripts/
+*.md
+.env
+.env.*

@@ -1,0 +1,12 @@
+{
+  "id": "mediasoup-e2e",
+  "title": "MediaSoupVTT E2E",
+  "description": "Fixture world for the MediaSoupVTT Foundry e2e tests. tests/e2e/foundry/scripts/prepare-data.ts sets coreVersion and compatibility.verified to the Foundry build under test. Foundry creates the world databases on first launch; global setup then adds the player, enables the module and turns on Audio & Video.",
+  "system": "mediasoup-e2e-system",
+  "systemVersion": "1.0.0",
+  "coreVersion": "0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "0"
+  }
+}

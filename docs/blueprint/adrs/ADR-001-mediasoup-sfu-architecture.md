@@ -40,15 +40,16 @@ using the `mediasoup` crate.
 Key design points:
 
 - The Rust server hosts one or more MediaSoup Workers (OS processes) and a
-  Router per game session/room.
+  Router per room. The client sends the Foundry world id as the `roomId`, so
+  each world gets its own room.
 - Clients connect via a WebSocket signaling channel, negotiate RTP
   capabilities, and create WebRTC transports with DTLS-SRTP.
 - Each client produces one audio and one video stream via a Send Transport.
   The server forwards those streams to all other participants via Receive
   Transports (consumers).
-- Server-side recording is implemented by piping incoming audio RTP to an
-  external recorder (e.g., FFmpeg) within the server process, satisfying the
-  D&D helper application requirement.
+- Server-side recording is to be implemented by piping incoming audio RTP to
+  an external recorder (e.g., FFmpeg) within the server process, satisfying
+  the D&D helper application requirement. (Not implemented yet.)
 - The number of MediaSoup Workers is configurable via `MEDIASOUP_NUM_WORKERS`
   to scale across CPU cores.
 
@@ -56,7 +57,8 @@ Key design points:
 
 ### Positive
 
-- Server-side audio recording is possible without additional infrastructure.
+- Server-side audio recording is possible without additional infrastructure
+  (once implemented).
 - Client upload bandwidth is bounded to one audio + one video stream regardless
   of participant count.
 - DTLS-SRTP encryption is built into the MediaSoup transport layer.
@@ -70,10 +72,13 @@ Key design points:
 
 - Players must run or have access to a self-hosted server; there is no
   zero-infrastructure option.
-- The server requires UDP ports (default 10000-10100) to be reachable, which
-  may require firewall and NAT configuration (`MEDIASOUP_ANNOUNCED_IP`).
+- The server requires its RTC ports (default 10000-10100, UDP with a TCP
+  fallback) to be reachable, which needs firewall and NAT configuration.
+  `MEDIASOUP_ANNOUNCED_IP` is required when listening on `0.0.0.0`.
 - The Rust server adds a second language/toolchain (`cargo`) that contributors
   must be familiar with.
 - WebSocket signaling protocol must be kept in sync between the client
-  (`src/constants/index.js`) and the server (`server/src/signaling.rs`) --
-  changes to one require matching changes in the other.
+  (`src/constants/index.ts`) and the server (`server/src/server.rs`,
+  `server/src/room.rs`, `server/src/signaling.rs`) -- changes to one require
+  matching changes in the other. `server/tests/signaling_e2e.rs` and the SFU
+  e2e tier check the contract.
