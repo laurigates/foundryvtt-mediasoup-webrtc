@@ -18,6 +18,7 @@ import {
   SIGNALING_REQUEST_TIMEOUT_MS,
 } from '../constants/index.js';
 import { log } from '../utils/logger.js';
+import type * as mediasoupTypes from 'mediasoup-client/types';
 
 interface SignalingRequestHandlers {
   resolve: (value: any) => void;
@@ -25,10 +26,9 @@ interface SignalingRequestHandlers {
 }
 
 export class MediaSoupVTTClient {
-  // mediasoup-client and WebRTC shapes are typed loosely (`any`) — precise
-  // typing of the SFU client/transports/producers/consumers is impractical
-  // and the runtime behavior is unchanged.
-  device: any;
+  // The Device is typed via mediasoup-client's own types. The remaining
+  // transports/producers/consumers are still typed loosely (`any`) for now.
+  device: mediasoupTypes.Device | null;
   socket: WebSocket | null;
   sendTransport: any;
   recvTransport: any;
@@ -309,6 +309,7 @@ export class MediaSoupVTTClient {
         throw new Error('Received empty or invalid routerRtpCapabilities from server.');
       }
       log('Received Router RTP Capabilities. Loading into device...', 'debug');
+      if (!this.device) throw new Error('Device was reset during initialization.');
       await this.device.load({ routerRtpCapabilities });
       log('Mediasoup Device loaded successfully.', 'info');
 
@@ -353,8 +354,9 @@ export class MediaSoupVTTClient {
 
   _handleSignalingMessage(message: any) {
     log(`Received signaling message: ${JSON.stringify(message)}`, 'debug');
-    if (message.requestId && this.requestMap.has(message.requestId)) {
-      const { resolve, reject } = this.requestMap.get(message.requestId)!;
+    const pending = message.requestId ? this.requestMap.get(message.requestId) : undefined;
+    if (pending) {
+      const { resolve, reject } = pending;
       if (message.error) {
         log(`Signaling request (ID: ${message.requestId}) failed: ${message.error}`, 'error');
         reject(new Error(message.error));
@@ -389,7 +391,6 @@ export class MediaSoupVTTClient {
         forceTcp: false,
         producing: true,
         consuming: false,
-        sctpCapabilities: this.device.sctpCapabilities,
       });
 
       if (!this.device) throw new Error('Device not initialized for creating send transport.');
@@ -460,7 +461,6 @@ export class MediaSoupVTTClient {
         forceTcp: false,
         producing: false,
         consuming: true,
-        sctpCapabilities: this.device.sctpCapabilities,
       });
 
       if (!this.device) throw new Error('Device not initialized for creating recv transport.');
@@ -872,10 +872,10 @@ export class MediaSoupVTTClient {
         type: SIG_MSG_TYPES.CONSUME,
         transportId: this.recvTransport.id,
         producerId: producerId,
-        rtpCapabilities: this.device.rtpCapabilities,
+        rtpCapabilities: this.device.recvRtpCapabilities,
       });
 
-      if (!consumerParams || !consumerParams.id) {
+      if (!consumerParams?.id) {
         throw new Error('Server did not return valid consumer parameters.');
       }
 
@@ -952,16 +952,16 @@ export class MediaSoupVTTClient {
     const consumerIdToRemove = this.producerToConsumerMap.get(producerId);
     const consumerToClose = consumerIdToRemove ? this.consumers.get(consumerIdToRemove) : null;
 
-    if (consumerToClose) {
+    if (consumerIdToRemove && consumerToClose) {
       log(`Closing consumer ${consumerToClose.id} for remote producer ${producerId}`, 'info');
       if (!consumerToClose.closed) {
         consumerToClose.close();
       }
-      this.consumers.delete(consumerIdToRemove!);
+      this.consumers.delete(consumerIdToRemove);
 
       // Clean up optimization mappings
       this.producerToConsumerMap.delete(producerId);
-      this.consumerToUserMap.delete(consumerIdToRemove!);
+      this.consumerToUserMap.delete(consumerIdToRemove);
 
       const userId = consumerToClose.appData.userId;
       const kind = consumerToClose.kind;
@@ -993,8 +993,9 @@ export class MediaSoupVTTClient {
   }
 
   _stopMediaStream(propertyName: 'localAudioStream' | 'localVideoStream') {
-    if (this[propertyName]) {
-      this[propertyName]!.getTracks().forEach((track) => {
+    const stream = this[propertyName];
+    if (stream) {
+      stream.getTracks().forEach((track) => {
         track.stop();
       });
       this[propertyName] = null;
