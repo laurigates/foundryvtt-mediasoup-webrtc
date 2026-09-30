@@ -1,6 +1,6 @@
 use crate::config::{Config, TlsConfig};
 use crate::error::{MediaSoupError, Result};
-use crate::room::{media_kind_str, Peer, Room};
+use crate::room::{Peer, Room, media_kind_str};
 use crate::signaling::*;
 use dashmap::DashMap;
 use futures_util::stream::SplitStream;
@@ -14,10 +14,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 use tokio_rustls::TlsAcceptor;
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
+use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -61,7 +62,7 @@ fn load_tls_acceptor(tls: &TlsConfig) -> Result<TlsAcceptor> {
         MediaSoupError::Config(format!("Failed to read TLS key {}: {}", tls.key_path, e))
     })?;
 
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_bytes.as_slice())
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(&cert_bytes)
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| MediaSoupError::Config(format!("Invalid TLS certificate: {e}")))?;
     if certs.is_empty() {
@@ -71,10 +72,12 @@ fn load_tls_acceptor(tls: &TlsConfig) -> Result<TlsAcceptor> {
         )));
     }
 
-    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_bytes.as_slice())
-        .map_err(|e| MediaSoupError::Config(format!("Invalid TLS private key: {e}")))?
-        .ok_or_else(|| {
-            MediaSoupError::Config(format!("No private key found in {}", tls.key_path))
+    let key: PrivateKeyDer<'static> =
+        PrivateKeyDer::from_pem_slice(&key_bytes).map_err(|e| match e {
+            pem::Error::NoItemsFound => {
+                MediaSoupError::Config(format!("No private key found in {}", tls.key_path))
+            }
+            e => MediaSoupError::Config(format!("Invalid TLS private key: {e}")),
         })?;
 
     let server_config = RustlsServerConfig::builder_with_provider(Arc::new(
@@ -127,7 +130,9 @@ impl MediaSoupServer {
                 Some(acceptor)
             }
             None => {
-                info!("Native TLS disabled; serving ws:// (terminate TLS at a reverse proxy for browsers)");
+                info!(
+                    "Native TLS disabled; serving ws:// (terminate TLS at a reverse proxy for browsers)"
+                );
                 None
             }
         };
@@ -256,7 +261,7 @@ impl MediaSoupServer {
                 Message::Close(_) => {
                     return Err(MediaSoupError::InvalidRequest(
                         "Closed before auth".to_string(),
-                    ))
+                    ));
                 }
                 _ => continue, // ignore pings/binary before auth
             };
@@ -494,7 +499,7 @@ impl MediaSoupServer {
             other => {
                 return Err(MediaSoupError::InvalidRequest(format!(
                     "Invalid media kind: {other}"
-                )))
+                )));
             }
         };
 
@@ -757,9 +762,88 @@ impl CustomWorkerManager {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use super::constant_time_eq;
+    use super::{constant_time_eq, load_tls_acceptor};
+    use crate::config::TlsConfig;
+    use crate::error::MediaSoupError;
+    use std::path::PathBuf;
+
+    /// A scratch directory under the system temp dir, removed on drop.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("mediasoup-tls-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).expect("failed to create scratch dir");
+            Self(dir)
+        }
+
+        fn write(&self, name: &str, contents: &str) -> String {
+            let path = self.0.join(name);
+            std::fs::write(&path, contents).expect("failed to write scratch file");
+            path.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Generate a throwaway self-signed certificate and its private key as PEM.
+    fn self_signed_pem() -> (String, String) {
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+                .expect("failed to generate self-signed cert");
+        (cert.pem(), signing_key.serialize_pem())
+    }
+
+    fn config_error(result: crate::error::Result<tokio_rustls::TlsAcceptor>) -> String {
+        match result {
+            Err(MediaSoupError::Config(msg)) => msg,
+            Err(other) => panic!("expected a Config error, got {other:?}"),
+            Ok(_) => panic!("expected a Config error, got a TlsAcceptor"),
+        }
+    }
+
+    #[test]
+    fn load_tls_acceptor_accepts_generated_pem_pair() {
+        let dir = ScratchDir::new();
+        let (cert_pem, key_pem) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", &cert_pem),
+            key_path: dir.write("key.pem", &key_pem),
+        };
+        load_tls_acceptor(&tls).expect("generated PEM pair should load");
+    }
+
+    #[test]
+    fn load_tls_acceptor_reports_missing_private_key() {
+        let dir = ScratchDir::new();
+        let (cert_pem, _) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", &cert_pem),
+            // A PEM file holding only a certificate has no private key section.
+            key_path: dir.write("key.pem", &cert_pem),
+        };
+        let msg = config_error(load_tls_acceptor(&tls));
+        assert!(msg.starts_with("No private key found in "), "{msg}");
+    }
+
+    #[test]
+    fn load_tls_acceptor_reports_missing_certificates() {
+        let dir = ScratchDir::new();
+        let (_, key_pem) = self_signed_pem();
+        let tls = TlsConfig {
+            cert_path: dir.write("cert.pem", "not a certificate\n"),
+            key_path: dir.write("key.pem", &key_pem),
+        };
+        let msg = config_error(load_tls_acceptor(&tls));
+        assert!(msg.starts_with("No certificates found in "), "{msg}");
+    }
 
     #[test]
     fn constant_time_eq_matches_identical_secrets() {

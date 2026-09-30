@@ -4,7 +4,7 @@ use crate::signaling::OutgoingMessage;
 use dashmap::DashMap;
 use mediasoup::prelude::*;
 use serde_json::Value;
-use std::num::{NonZeroU32, NonZeroU8};
+use std::num::{NonZeroU8, NonZeroU32};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -147,10 +147,10 @@ impl Room {
         message: OutgoingMessage,
     ) -> Result<()> {
         for peer in self.peers.iter() {
-            if peer.id != sender_id {
-                if let Err(e) = peer.send_message(message.clone()) {
-                    warn!("Failed to send message to peer {}: {}", peer.id, e);
-                }
+            if peer.id != sender_id
+                && let Err(e) = peer.send_message(message.clone())
+            {
+                warn!("Failed to send message to peer {}: {}", peer.id, e);
             }
         }
         Ok(())

@@ -1,17 +1,20 @@
 name: Server CI
 
 # Rust gates for the MediaSoup SFU server (server/). Path-filtered so it only
-# runs when the server or this workflow changes, not on unrelated module edits.
+# runs when the server, the client/server signaling contract
+# (src/constants/**) or this workflow changes, not on unrelated module edits.
 on:
   push:
     branches: [main]
     paths:
       - "server/**"
+      - "src/constants/**"
       - ".github/workflows/server-ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "server/**"
+      - "src/constants/**"
       - ".github/workflows/server-ci.yml"
 
 permissions:
@@ -22,7 +25,7 @@ jobs:
     name: fmt, clippy & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -40,3 +43,19 @@ jobs:
       - name: Test
         working-directory: server
         run: cargo test
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build server image
+        uses: docker/build-push-action@v7
+        with:
+          context: server
+          push: false
+          tags: mediasoup-server:ci
+          cache-from: type=gha,scope=server-image
+          cache-to: type=gha,mode=max,scope=server-image
