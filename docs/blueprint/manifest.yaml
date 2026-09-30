@@ -1,10 +1,9 @@
 project:
     name: foundryvtt-mediasoup-webrtc
     description: >
-        WebRTC audio/video communication module for FoundryVTT using a self-hosted
-        MediaSoup SFU server. Provides real-time A/V between players, scene controls
-        integration, and server-side audio recording capability for external
-        D&D helper applications.
+        FoundryVTT AVClient that carries core audio/video through a self-hosted
+        MediaSoup SFU server. Server-side audio recording for external D&D
+        helper applications is a goal, not yet implemented.
     version: 0.7.20
     language: typescript
     framework: none (FoundryVTT module)
@@ -24,11 +23,15 @@ components:
     - name: unit-tests
       path: tests/unit/
       language: typescript
-      description: Vitest unit suite (the CI test gate)
-    - name: integration-tests
-      path: tests/integration/
-      language: javascript
-      description: Playwright end-to-end suite — deferred, not wired to Vite/CI (see ADR-003)
+      description: Vitest unit suite with v14-shaped Foundry test doubles (ci.yml)
+    - name: sfu-e2e-tests
+      path: tests/e2e/sfu/
+      language: typescript
+      description: Playwright suite running the real bundle on a Foundry stub page against the real SFU (e2e.yml, every PR)
+    - name: foundry-e2e-tests
+      path: tests/e2e/foundry/
+      language: typescript
+      description: Playwright suite against a real Foundry server (foundry-e2e.yml, only when Foundry secrets exist; not yet run)
 
 documents:
     prds:
@@ -53,3 +56,8 @@ documents:
           title: Vite + TypeScript Build System
           status: accepted
           created: 2026-07-01
+        - id: ADR-004
+          file: adrs/ADR-004-foundry-avclient-integration.md
+          title: Integrate as a Foundry AVClient
+          status: accepted
+          created: 2026-09-30

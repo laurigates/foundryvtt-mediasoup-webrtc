@@ -9,7 +9,7 @@ breaks: a green run with no media flowing is not possible.
 | Unit | `tests/unit/` (Vitest, happy-dom) | `bun run test` (part of `just check`); CI `ci.yml` | Client logic against v14-shaped Foundry test doubles (written from the public API pages; AVSettings, AVMaster and CameraViews reduced to the surface the module uses) and a fake signaling socket: the AVClient contract, signaling payloads, pause/resume, reconnect/ICE recovery, the settings UI | nothing |
 | Server | `server/tests/`, `server/src/**` (cargo) | `just server-check`; CI `server-ci.yml` | The Rust SFU's signaling contract end to end over a WebSocket | Rust toolchain |
 | SFU e2e | `tests/e2e/sfu/` (Playwright, Chromium) | `just test-e2e` / `bun run test:e2e`; CI `e2e.yml` | The **real bundle** loads and registers on a v14-shaped Foundry, and **real audio and video flow** browser -> SFU -> browser | a built `dist/` and SFU release binary |
-| Foundry e2e | `tests/e2e/foundry/` (separate `playwright.foundry.config.ts`) | CI `foundry-e2e.yml`, only when Foundry secrets exist | The module inside a real Foundry v14 server | a Foundry license |
+| Foundry e2e | `tests/e2e/foundry/` (separate `playwright.foundry.config.ts`) | `bunx playwright test -c playwright.foundry.config.ts` (see `tests/e2e/foundry/README.md`); CI `foundry-e2e.yml`, only when Foundry secrets exist | The module inside a real Foundry v14 server. **Not run yet**: no result from this tier exists so far | a Foundry license |
 
 ## SFU e2e tier (`tests/e2e/sfu/`)
 
@@ -113,8 +113,9 @@ bun run test:e2e:report  # open the last HTML report
   (the module build; point it at a deliberately broken copy to check that the
   specs catch the break).
 - The SFU build needs the mediasoup worker's C++ toolchain; see
-  `server/README.md`. Offline, pre-fetch the meson subprojects and set
-  `MESON_PACKAGE_CACHE_DIR`.
+  `server/README.md`. When a proxy blocks meson's subproject archive
+  downloads, pre-fetch them into one directory and set
+  `MESON_PACKAGE_CACHE_DIR` (details in `CLAUDE.md`, "Server build notes").
 
 ### Limits
 

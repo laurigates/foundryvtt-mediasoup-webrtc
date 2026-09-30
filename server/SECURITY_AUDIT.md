@@ -1,105 +1,98 @@
-# Security Audit Report
+# Security notes
 
-> **Scope note:** Most of this document covers *dependency* advisories only. The
-> application-level security posture is summarized below and should not be
-> assumed to be "hardened" beyond what is listed here (see #118).
+What the server does and does not protect against, and the state of its
+dependency advisories. Not a claim of hardening beyond what is listed (#118).
 
-## Application Security Posture
+Last updated: 2026-09-30.
 
-### Authentication (shared-secret gate)
-- The server requires an `authenticate` handshake as the first WebSocket frame.
-  Clients must present the shared secret configured via `MEDIASOUP_AUTH_TOKEN`
-  (compared in constant time). When the variable is unset, the server runs
-  **unauthenticated** and logs a warning at startup — do not expose it that way.
-- The authenticated peer identity is the FoundryVTT `userId` supplied by the
-  client. Because the token is provisioned as a *world* setting (readable by all
-  players), this gates outside connections but does **not** prevent one
-  authenticated player from claiming another player's `userId`. True per-user
-  validation needs a Foundry-side relay that mints signed per-user tokens; that
-  is tracked as follow-up work. Only `verify_token`/the handshake need to change
-  to adopt it.
+## Application security
 
-### Transport security (TLS)
-- The server supports **native TLS** (`wss://`) when `MEDIASOUP_TLS_CERT` and
-  `MEDIASOUP_TLS_KEY` point at PEM files; otherwise it serves plain `ws://` and
-  expects TLS to be terminated by a reverse proxy (nginx profile in
-  `docker-compose.yml`). One of these is required in any real deployment because
-  browsers block mixed-content `ws://` from an `https://` Foundry page.
+### Authentication: one shared token
 
-### Known gaps (not yet addressed)
-- **DoS / resource limits:** no per-IP connection cap, no per-peer
-  transport/producer/consumer limits, unbounded signaling payload sizes. Tracked
-  separately.
-- **Per-user spoofing:** see the relay note above.
+- The first WebSocket frame must be `authenticate`, within 30 seconds. When
+  `MEDIASOUP_AUTH_TOKEN` is set, its `token` must match (length-checked,
+  constant-time comparison). Otherwise the server replies with an error and
+  drops the connection before allocating any room or peer resources.
+- When `MEDIASOUP_AUTH_TOKEN` is unset or empty, the server accepts everyone
+  and logs a warning at startup. Do not expose it to a network that way.
 
-## Updated Dependencies (2025-09-08)
+### Known limitation: `userId` and `roomId` are not authenticated
 
-### Major Version Updates
-- **MediaSoup**: 0.18 → 0.20.0
-- **tokio-tungstenite**: 0.21 → 0.27.0  
-- **warp**: 0.3 → 0.4.2
+The token is the only credential, and it is the same for every user. In the
+module it is a world setting, readable by every player of the world.
 
-### Resolved Issues
-- **slab**: Avoided yanked version 0.4.10, using 0.4.11
-- **API Compatibility**: Fixed breaking changes in MediaSoup 0.20:
-  - Updated `ListenInfo` struct to include `expose_internal_ip` field
-  - Fixed `get_rtp_capabilities()` return type (now returns value instead of reference)
-  - Updated WebSocket `Message::Text` to accept `Utf8Bytes` instead of `String`
+- `userId` is taken from the client as is. Anyone holding the token can claim
+  any user id. Because a new connection for a user evicts that user's older
+  one (close code 4001), this also lets a token holder disconnect any user,
+  including the GM, and take their place in the room.
+- `roomId` is also client-chosen. With several worlds on one server and one
+  token, a player of one world can join another world's room by sending its
+  world id. Use a separate server (or at least a separate token) per group
+  that should not share A/V.
 
-### Remaining Advisories (Transitive Dependencies)
+The fix is per-user credentials: a Foundry-side relay that mints signed,
+short-lived tokens binding user id and world id. That is follow-up work; only
+the token check in the `authenticate` handshake (`verify_token` in
+`src/server.rs`) would need to change.
 
-The following security advisories remain due to transitive dependencies through `mediasoup-sys`:
+### Transport security
 
-#### RUSTSEC-2024-0436: paste is unmaintained
-- **Crate**: paste v0.1.18
-- **Status**: Unmaintained (compile-time only, low risk)
-- **Path**: paste → bitpattern → h264-profile-level-id → mediasoup
-- **Impact**: Used only for compile-time code generation
+- Native TLS (`wss://`) when `MEDIASOUP_TLS_CERT` and `MEDIASOUP_TLS_KEY` both
+  point at PEM files, using rustls with the `ring` provider and its safe
+  default protocol versions. With only one of them set, the server serves
+  plain `ws://`.
+- Otherwise terminate TLS at a reverse proxy. One of the two is needed in any
+  real deployment, since browsers block `ws://` from an `https://` page.
+- Media is DTLS-SRTP encrypted between each browser and the SFU, as in any
+  WebRTC SFU. The SFU itself sees decrypted media; there is no end-to-end
+  encryption.
 
-#### RUSTSEC-2024-0375: atty is unmaintained  
-- **Crate**: atty v0.2.14
-- **Status**: Unmaintained (low runtime risk)
-- **Path**: atty → planus-translation → mediasoup-sys → mediasoup
-- **Impact**: Used for terminal detection
+### Known gaps
 
-#### RUSTSEC-2021-0145: atty potential unaligned read
-- **Crate**: atty v0.2.14
-- **Status**: Unsound (theoretical issue)
-- **Path**: Same as above
-- **Impact**: Potential unaligned memory access (rare occurrence)
+- **Resource limits:** no per-IP connection cap, no per-peer limit on
+  transports, producers or consumers, no size limit on signaling frames beyond
+  the WebSocket library's defaults.
+- **Per-user identity:** see above.
 
-#### RUSTSEC-2024-0384: instant is unmaintained
-- **Crate**: instant v0.1.13  
-- **Status**: Unmaintained (timing utilities)
-- **Path**: instant → parking_lot/fastrand → mediasoup
-- **Impact**: Used for timing in concurrency primitives
+## Dependencies
 
-## Audit Commands
+### Recent changes
 
-To run security audit accepting these known issues:
+- **rustls-pemfile removed.** It is unmaintained
+  ([RUSTSEC-2025-0134](https://rustsec.org/advisories/RUSTSEC-2025-0134)).
+  PEM certificate and key loading now uses the `PemObject` API from
+  `rustls-pki-types`, re-exported by rustls
+  (`CertificateDer::pem_slice_iter`, `PrivateKeyDer::from_pem_slice`). A unit
+  test loads a generated certificate/key pair and checks the error for a PEM
+  file without a key and one without certificates.
+- `warp`, `config`, `slab` and `tokio-test` removed; they were declared but
+  never used.
+- mediasoup 0.20 to 0.28.1 (mediasoup-sys 0.18.1), tokio-tungstenite 0.27 to
+  0.30, thiserror 1 to 2, dashmap 5 to 6.
+- Rust edition 2024, MSRV 1.88. The worker now needs a C++20 compiler and
+  Python 3.10+, so the Docker image moved from Debian bullseye to bookworm.
+
+### Remaining advisories (transitive, through mediasoup)
+
+Crate versions and paths as in the current `Cargo.lock` (`cargo tree -i`). The
+advisory list itself was not re-run with `cargo audit` for this update; run it
+before relying on this list.
+
+| Advisory | Crate | Path | Assessment |
+|---|---|---|---|
+| RUSTSEC-2024-0436 (unmaintained) | paste 0.1.18 | paste → bitpattern (proc-macro) → h264-profile-level-id → mediasoup | Compile time only. |
+| RUSTSEC-2024-0375 (unmaintained) | atty 0.2.14 | atty → planus-translation → mediasoup-sys (build dependency) | Build time only; not in the binary. |
+| RUSTSEC-2021-0145 (unsound) | atty 0.2.14 | same | Same. |
+| RUSTSEC-2024-0384 (unmaintained) | instant 0.1.13 | instant → fastrand 1.9 → futures-lite 1 / mediasoup | Only compiled for wasm targets; not in the Linux build. |
+
+None of them has a fix available short of mediasoup updating its own
+dependencies.
 
 ```bash
-cargo audit --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2024-0375 --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2024-0384
-```
-
-To see all current advisories:
-
-```bash
+# Everything:
 cargo audit
+
+# Accepting the known transitive advisories above:
+cargo audit --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2024-0375 \
+            --ignore RUSTSEC-2021-0145 --ignore RUSTSEC-2024-0384
 ```
-
-## Risk Assessment
-
-All remaining advisories are:
-1. **Low Risk**: Compile-time only or utility functions
-2. **Transitive**: Cannot be directly resolved without mediasoup-sys updates  
-3. **Acceptable**: No known exploits or high-severity vulnerabilities
-
-## Recommendations
-
-1. **Monitor mediasoup updates**: Check for newer versions that may resolve transitive dependencies
-2. **Regular audits**: Run `cargo audit` monthly to catch new issues
-3. **Consider alternatives**: If security requirements are strict, evaluate alternative WebRTC libraries
-
-## Last Updated
-2025-09-08 - Dependency updates and API compatibility fixes completed

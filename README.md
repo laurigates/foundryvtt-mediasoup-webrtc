@@ -1,370 +1,153 @@
-# MediaSoupVTT - FoundryVTT WebRTC Module
+# MediaSoupVTT
 
-A complete WebRTC audio/video communication solution for FoundryVTT using MediaSoup SFU architecture, featuring both client module and Rust server implementation.
+A FoundryVTT module that carries the core audio/video conference through a
+self-hosted [MediaSoup](https://mediasoup.org/) SFU instead of Foundry's
+built-in peer-to-peer connections. It has two parts:
 
-## 🌟 Features
+- **the module** (`src/`): a Foundry AVClient, bundled with `mediasoup-client`
+  into `dist/mediasoup-vtt.mjs`;
+- **the server** (`server/`): a Rust SFU built on the `mediasoup` crate. The
+  module talks to it over a WebSocket. See [`server/README.md`](server/README.md).
 
-### Client Module
+## How it works
 
-- 🎤 **Real-time Audio**: Voice chat with push-to-talk and mute controls
-- 📹 **Video Streaming**: Webcam sharing with local preview and remote display
-- 🎛️ **Device Management**: Select preferred microphone and camera devices
-- 🎮 **FoundryVTT Integration**: Scene controls and player list integration
-- 🔧 **WebRTC Transport**: Full producer/consumer lifecycle management
+The module registers `MediaSoupAVClient` as `CONFIG.WebRTC.clientClass`, so it
+replaces core's peer-to-peer client while the module is enabled. Foundry's own
+A/V parts keep doing their jobs:
 
-### Rust Server
+- AVMaster connects and disconnects the client;
+- the camera dock (CameraViews) shows the video tiles;
+- Configure Audio/Video (AVSettings) holds the devices, mute and hide state,
+  the voice mode and the push-to-talk key.
 
-- ⚡ **High Performance**: Multi-worker Rust implementation for low latency
-- 🏗️ **SFU Architecture**: Efficient selective forwarding for multi-party communication
-- 📊 **Server Recording**: Built-in support for server-side audio recording
-- 🔒 **Secure**: DTLS-SRTP encryption with configurable network settings
-- 🐳 **Production Ready**: Docker support with reverse proxy configuration
+The module adds no scene controls or player-list video of its own. Each
+Foundry world joins its own room on the SFU (the room id is the world id), so
+one server can serve several worlds.
 
-## 📋 Requirements
+## Compatibility
 
-### FoundryVTT Client
+- `module.json`: `minimum` 13, `verified` 13.348.
+- The client is written against the public v13/v14 API (`foundry.av.AVClient`,
+  AVSettings, ApplicationV2). Foundry v14 (14.368) is the target.
+- **Not yet verified inside a real Foundry server.** The unit tests and the
+  SFU e2e suite run the module against v14-shaped test doubles and a stub
+  page. The Foundry e2e job (`foundry-e2e.yml`, 14.368 gating, 13.351
+  informational) has not run yet. `verified` is raised only after it passes.
+- Browser: a Chromium-based browser or the Foundry desktop app. Other browsers
+  that `mediasoup-client` supports may work; they are not tested.
 
-- FoundryVTT v10.291+ (verified up to v13.330)
-- Modern web browser with WebRTC support (Chrome/Chromium recommended)
-- Microphone and/or camera access permissions
+## Server
 
-### Server Infrastructure
+The SFU needs a TCP port for the WebSocket (default 3000) and a UDP (and TCP)
+port range for media (default 10000-10100) reachable from every player.
 
-- Linux/macOS server with Rust 1.70+
-- Network connectivity for WebRTC (UDP ports)
-- Optional: Docker for containerized deployment
-- Optional: Reverse proxy for SSL termination
-
-## 🚀 Quick Start
-
-### 1. Deploy the MediaSoup Server
-
-```bash
+```sh
 cd server
-cp .env.example .env
-# Edit .env with your configuration
-cargo run --release
+cp .env.example .env    # set MEDIASOUP_ANNOUNCED_IP and MEDIASOUP_AUTH_TOKEN
+cargo run --release     # or: docker compose up -d
 ```
 
-**Docker Deployment:**
+- `MEDIASOUP_ANNOUNCED_IP` is required when the listen IP is `0.0.0.0` (the
+  default): it is the address browsers send media to. Without it the server
+  refuses to start, unless `MEDIASOUP_ALLOW_UNANNOUNCED=1` is set.
+- `MEDIASOUP_AUTH_TOKEN` is the shared secret the module must present. When
+  it is unset the server accepts anyone and logs a warning.
+- For `wss://`, set `MEDIASOUP_TLS_CERT` and `MEDIASOUP_TLS_KEY`, or put the
+  server behind a reverse proxy that terminates TLS.
 
-```bash
-cd server
-docker-compose up -d
+Building the server needs Rust 1.88 or newer and the mediasoup worker's C++
+build dependencies. The full variable list, Docker and reverse-proxy examples
+are in [`server/README.md`](server/README.md).
+
+## Installation
+
+On the Foundry Setup screen, open **Add-on Modules**, click **Install
+Module** and paste the manifest URL:
+
+```
+https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/module.json
 ```
 
-The server will start on `localhost:3000` with WebSocket signaling and UDP ports `10000-10100` for media.
+For a manual install, unzip
+`https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/mediasoup-vtt.zip`
+into `Data/modules/mediasoup-vtt/`. The folder name must be `mediasoup-vtt`.
 
-### 2. Install FoundryVTT Module
+From source:
 
-**Easy Installation (Recommended):**
-
-1. Open FoundryVTT and navigate to **Game Settings → Modules**
-2. Click **Install Module**
-3. Paste this manifest URL into the **Manifest URL** field:
-   ```
-   https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/module.json
-   ```
-4. Click **Install** and wait for the download to complete
-
-**Manual Installation:**
-
-```bash
-# Download the latest release
-wget https://github.com/laurigates/foundryvtt-mediasoup-webrtc/releases/latest/download/mediasoup-vtt.zip
-
-# Extract to FoundryVTT modules directory
-unzip mediasoup-vtt.zip -d /path/to/foundrydata/Data/modules/mediasoup-vtt/
-```
-
-**Development Build:**
-
-```bash
+```sh
 bun install
-bun run build   # or: just build
+bun run build           # or: just build
 cp -r dist/. /path/to/foundrydata/Data/modules/mediasoup-vtt/
 ```
 
-### 3. Configure and Connect
+## Setup in a world
 
-1. Enable the **MediaSoupVTT** module in FoundryVTT
-2. Set **MediaSoup Server URL** in module settings: `ws://your-server:3000`
-3. Click the headset button in scene controls to connect
-4. Use microphone/camera buttons to start streaming
+1. Enable **MediaSoupVTT** in **Manage Modules**.
+2. As the GM, set the server connection: in the sidebar **Settings** tab
+   (labelled Game Settings in older versions), open **Configure Settings** and then
+   the MediaSoupVTT section, or use its **Configure MediaSoup Server** menu.
+3. Open **Configure Audio/Video** and set the conference mode to Audio/Video,
+   Audio Only or Video Only. MediaSoup is used automatically; there is no
+   separate mode to pick.
+4. Each user chooses their microphone, camera, voice mode and push-to-talk
+   key in **Configure Audio/Video** as usual.
 
-## 🏗️ Architecture
+## Settings
 
-### Client-Server Communication
+| Setting | Key | Scope | Notes |
+|---------|-----|-------|-------|
+| MediaSoup Server WebSocket URL | `mediaSoupServerUrl` | world | `ws://` or `wss://`. Changing it reconnects every connected user. |
+| MediaSoup Server Auth Token | `mediaSoupAuthToken` | world | The server's `MEDIASOUP_AUTH_TOKEN`. Changing it reconnects every connected user. |
+| MediaSoupVTT Debug Logging | `debugLogging` | client | Verbose console logging. |
 
-```mermaid
-graph TB
-    subgraph "FoundryVTT Client"
-        A[MediaSoupVTTClient.js]
-        B[Scene Controls]
-        C[Player List UI]
-        D[Local Media]
-    end
+The configuration menu (GM only) edits the URL and token in one dialog. The
+module's section on the Settings page shows the connection status.
 
-    subgraph "Network Layer"
-        E[WebSocket Signaling]
-        F[WebRTC Transports]
-    end
+The token is a world setting, so every user in the world can read it. It
+keeps strangers off the server; it does not separate users of the same world.
 
-    subgraph "Rust Server"
-        G[WebSocket Handler]
-        H[Room Manager]
-        I[MediaSoup Router]
-    end
+## Troubleshooting
 
-    subgraph "MediaSoup Workers"
-        J[Worker 1]
-        K[Worker 2]
-        L[Worker N]
-    end
+- **No connection:** check the URL, the token, and that TCP 3000 (or your
+  `MEDIASOUP_LISTEN_ADDR` port) is reachable. With **Debug Logging** on, the
+  browser console shows each signaling step.
+- **Connected but no audio or video:** usually the announced IP or the RTC
+  port range. `MEDIASOUP_ANNOUNCED_IP` must be an address the players can
+  reach, and the RTC ports must be open (UDP, and TCP for the fallback).
+- **The dock shows no tiles:** check that the conference mode in Configure
+  Audio/Video is not Disabled and that the browser has camera and microphone
+  permission.
 
-    A -->|Control Messages| E
-    E -->|Signaling Protocol| G
-    G --> H
-    H --> I
-    I --> J
-    I --> K
-    I --> L
+## Development
 
-    D -->|Audio/Video| F
-    F -->|RTP Streams| I
-
-    B -.->|User Actions| A
-    C -.->|Display Remote| A
+```sh
+bun install
+just dev             # Vite dev server, proxies to Foundry on :30000
+just check           # typecheck + build + lint + unit tests (the local gate)
+just server-check    # cargo fmt --check, clippy -D warnings, cargo test
 ```
 
-### Key Components
+## Tests
 
-**FoundryVTT Module (`src/`):**
+| Tier | Command | CI | Needs |
+|------|---------|----|-------|
+| Unit (`tests/unit/`, Vitest) | `bun run test` | `ci.yml` | nothing |
+| Server (`server/tests/`, cargo) | `just server-check` | `server-ci.yml` | Rust toolchain |
+| SFU e2e (`tests/e2e/sfu/`, Playwright) | `just test-e2e`, or `bun run test:e2e` with both built | `e2e.yml` | built `dist/` and the SFU release binary |
+| Foundry e2e (`tests/e2e/foundry/`, Playwright) | `tests/e2e/foundry/scripts/run-foundry.sh start`, then `bunx playwright test -c playwright.foundry.config.ts` | `foundry-e2e.yml`, only when the Foundry secrets exist | a Foundry license |
 
-- `MediaSoupVTTClient.js` - Core WebRTC client with signaling protocol
-- `settings.js` - Device enumeration and configuration
-- `sceneControls.js` - A/V control buttons
-- `playerList.js` - Remote video display integration
+The Foundry e2e tier has not run against a real Foundry server yet. A skipped
+`foundry-e2e.yml` run (no secrets) is not a pass.
 
-**Rust Server (`server/src/`):**
+`PW_CHROMIUM_PATH` points either Playwright tier at another Chromium binary.
+Details: [`tests/README.md`](tests/README.md) and
+[`tests/e2e/foundry/README.md`](tests/e2e/foundry/README.md).
 
-- `server.rs` - WebSocket signaling and request handling
-- `room.rs` - Peer and media stream management
-- `signaling.rs` - Protocol implementation matching client
-- `config.rs` - Environment-based configuration
+## Not implemented
 
-## ⚙️ Configuration
+Server-side recording of the audio streams is a project goal (see
+`REQUIREMENTS.md`) but is not implemented yet.
 
-### Server Configuration (`.env`)
+## License
 
-```bash
-# WebSocket server address
-MEDIASOUP_LISTEN_ADDR=0.0.0.0:3000
-
-# MediaSoup workers
-MEDIASOUP_NUM_WORKERS=2
-MEDIASOUP_LOG_LEVEL=warn
-
-# RTC port range for media
-MEDIASOUP_RTC_MIN_PORT=10000
-MEDIASOUP_RTC_MAX_PORT=10100
-
-# Public IP for NAT traversal (if needed)
-MEDIASOUP_ANNOUNCED_IP=your-public-ip
-```
-
-### Client Configuration
-
-Access via **Game Settings → Module Settings → MediaSoupVTT**:
-
-- **MediaSoup Server URL**: `ws://your-server:3000` or `wss://domain.com:3000`
-- **Auto-connect**: Connect automatically when joining a world
-- **Default Devices**: Preferred microphone/camera (auto-populated)
-- **Debug Logging**: Enable detailed console logging
-
-## 🌐 Production Deployment
-
-### SSL/TLS Setup (Recommended)
-
-Use Nginx reverse proxy for SSL termination:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### Firewall Configuration
-
-Open required ports:
-
-```bash
-# WebSocket signaling
-sudo ufw allow 3000/tcp
-
-# RTC media streams
-sudo ufw allow 10000:10100/udp
-```
-
-### Docker Production
-
-```yaml
-# docker-compose.yml
-version: "3.8"
-services:
-  mediasoup-server:
-    build: ./server
-    ports:
-      - "3000:3000"
-      - "10000-10100:10000-10100/udp"
-    environment:
-      - MEDIASOUP_ANNOUNCED_IP=your-public-ip
-    restart: unless-stopped
-```
-
-## 🔧 Development
-
-### Client Development
-
-```bash
-# Vite dev server (HMR, proxies to Foundry on :30000)
-just dev            # or: bun run dev
-
-# Typecheck + build + lint + test — the local gate
-just check
-
-# Linting / formatting (biome)
-bun run lint
-bun run lint:fix
-
-# Production build → dist/mediasoup-vtt.mjs
-just build          # or: bun run build
-```
-
-### Server Development
-
-```bash
-cd server
-
-# Format and lint
-cargo fmt
-cargo clippy
-
-# Run tests
-cargo test
-
-# Development build
-cargo run
-```
-
-### Protocol Implementation
-
-The signaling protocol supports these message types:
-
-- `getRouterRtpCapabilities` - Get server RTP capabilities
-- `createWebRtcTransport` - Create send/receive transports
-- `connectTransport` - Connect transport with DTLS parameters
-- `produce` - Start media production (audio/video)
-- `consume` - Start media consumption from other peers
-- `pauseProducer` / `resumeProducer` - Control media streaming
-
-## 📊 Monitoring and Logging
-
-### Server Logs
-
-```bash
-# Structured logging with tracing
-RUST_LOG=info cargo run
-
-# Debug mode for troubleshooting
-MEDIASOUP_LOG_LEVEL=debug RUST_LOG=debug cargo run
-```
-
-### Client Debug
-
-Enable **Debug Logging** in module settings for detailed WebRTC connection logs in browser console.
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Connection Failures:**
-
-- Verify server URL and network connectivity
-- Check firewall rules for signaling (TCP 3000) and media (UDP 10000-10100)
-- Ensure server is running and accessible
-
-**Audio/Video Issues:**
-
-- Check browser permissions for microphone/camera access
-- Verify device selection in module settings
-- Monitor WebRTC connection states in debug logs
-
-**NAT/Firewall Problems:**
-
-- Set `MEDIASOUP_ANNOUNCED_IP` to your public IP
-- Configure port forwarding for RTC port range
-- Use STUN/TURN servers for complex network setups
-
-## 📈 Performance Tuning
-
-### Server Optimization
-
-```bash
-# Scale workers for CPU cores
-MEDIASOUP_NUM_WORKERS=4
-
-# Increase port range for concurrent connections
-MEDIASOUP_RTC_MAX_PORT=20000
-
-# System limits
-echo "mediasoup soft nofile 65536" >> /etc/security/limits.conf
-```
-
-### Client Optimization
-
-- Use Chrome/Chromium for best WebRTC performance
-- Enable hardware acceleration in browser settings
-- Monitor network quality and adjust video resolution
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Follow development guidelines:
-   - Client: Run `just check` (typecheck + build + lint + test)
-   - Server: Run `just server-check` (`cargo fmt --check`, `clippy -D warnings`, `cargo test`)
-4. Commit with descriptive messages
-5. Submit Pull Request
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [MediaSoup](https://mediasoup.org/) - Powerful WebRTC SFU library
-- [FoundryVTT](https://foundryvtt.com/) - Amazing virtual tabletop platform
-- Rust and WebRTC communities for excellent tooling and documentation
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues)
-- **Documentation**: [MediaSoup Docs](https://mediasoup.org/documentation/) | [FoundryVTT API](https://foundryvtt.com/api/)
-- **Community**: FoundryVTT Discord server
-
----
-
-**Ready to enhance your FoundryVTT sessions with professional-grade audio/video communication!** 🎲🎬
+MIT. See [LICENSE](LICENSE).
