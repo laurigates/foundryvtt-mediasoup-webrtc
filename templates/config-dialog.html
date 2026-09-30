@@ -1,90 +1,39 @@
-<form class="mediasoup-config-form">
-    <div class="mediasoup-config-section">
-        <h3>MediaSoup Server Configuration</h3>
-        
-        <div class="mediasoup-form-group">
-            <label for="server-url">Server WebSocket URL:</label>
-            <input type="url" id="server-url" name="serverUrl" value="{{serverUrl}}" placeholder="wss://your-server.com:4443" pattern="^wss?://.*" title="Please enter a valid WebSocket URL (ws:// or wss://)" />
-            <p class="notes">Enter the WebSocket URL for your MediaSoup server (e.g., wss://your-server.com:4443)</p>
-        </div>
-        
-        <div class="mediasoup-form-group">
-            <label>
-                <input type="checkbox" id="auto-connect" name="autoConnect" {{#if autoConnect}}checked{{/if}} />
-                Auto-connect to MediaSoup Server
-            </label>
-            <p class="notes">Automatically connect when joining a world</p>
-        </div>
+<section class="mediasoup-config">
+  <fieldset>
+    <legend>{{localize "MEDIASOUPVTT.ConfigDialog.ServerSection"}}</legend>
+
+    <div class="form-group">
+      <label for="{{rootId}}-serverUrl">{{localize "MEDIASOUPVTT.Settings.ServerUrl.Name"}}</label>
+      <div class="form-fields">
+        <input type="url" id="{{rootId}}-serverUrl" name="serverUrl" value="{{serverUrl}}"
+               placeholder="wss://your-server.example:4443" pattern="^wss?://.+"
+               title="{{localize "MEDIASOUPVTT.ConfigDialog.ServerUrlPattern"}}"
+               {{#unless canEdit}}disabled{{/unless}}>
+      </div>
+      <p class="hint">{{localize "MEDIASOUPVTT.Settings.ServerUrl.Hint"}}</p>
     </div>
-    
-    <div class="mediasoup-config-section">
-        <h3>Setup Instructions</h3>
-        <div class="mediasoup-step">
-            <span class="mediasoup-step-number">1.</span>
-            Set up your MediaSoup server using the official documentation
-        </div>
-        <div class="mediasoup-step">
-            <span class="mediasoup-step-number">2.</span>
-            Configure the WebSocket URL above
-        </div>
-        <div class="mediasoup-step">
-            <span class="mediasoup-step-number">3.</span>
-            Enable auto-connect if desired
-        </div>
+
+    <div class="form-group">
+      <label for="{{rootId}}-authToken">{{localize "MEDIASOUPVTT.Settings.AuthToken.Name"}}</label>
+      <div class="form-fields">
+        <input type="password" id="{{rootId}}-authToken" name="authToken" value="{{authToken}}"
+               autocomplete="off" {{#unless canEdit}}disabled{{/unless}}>
+      </div>
+      <p class="hint">{{localize "MEDIASOUPVTT.Settings.AuthToken.Hint"}}</p>
     </div>
-</form>
 
-<style>
-.mediasoup-config-form {
-    padding: 10px;
-}
+    {{#unless canEdit}}
+    <p class="hint mediasoup-gm-only">{{localize "MEDIASOUPVTT.ConfigDialog.GMOnly"}}</p>
+    {{/unless}}
+  </fieldset>
 
-.mediasoup-config-section {
-    margin-bottom: 20px;
-    padding: 15px;
-    border: 1px solid var(--color-border-light-primary);
-    border-radius: 5px;
-    background: var(--color-bg-option);
-}
-
-.mediasoup-config-section h3 {
-    margin-top: 0;
-    color: var(--color-text-dark-primary);
-    border-bottom: 1px solid var(--color-border-light-primary);
-    padding-bottom: 5px;
-}
-
-.mediasoup-form-group {
-    margin-bottom: 15px;
-}
-
-.mediasoup-form-group label {
-    font-weight: bold;
-    color: var(--color-text-dark-primary);
-    display: block;
-    margin-bottom: 5px;
-}
-
-.mediasoup-form-group input[type="text"] {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid var(--color-border-light-primary);
-    border-radius: 3px;
-    background: var(--color-bg);
-    color: var(--color-text-dark-primary);
-}
-
-.mediasoup-step {
-    margin-bottom: 10px;
-    padding: 10px;
-    background: var(--color-bg);
-    border-left: 4px solid var(--color-border-highlight);
-    border-radius: 3px;
-}
-
-.mediasoup-step-number {
-    font-weight: bold;
-    color: var(--color-text-hyperlink);
-    margin-right: 8px;
-}
-</style>
+  <fieldset>
+    <legend>{{localize "MEDIASOUPVTT.ConfigDialog.SetupSection"}}</legend>
+    <ol class="mediasoup-steps">
+      <li>{{localize "MEDIASOUPVTT.SettingsHelp.Step1"}}</li>
+      <li>{{localize "MEDIASOUPVTT.SettingsHelp.Step2"}}</li>
+      <li>{{localize "MEDIASOUPVTT.SettingsHelp.Step3"}}</li>
+    </ol>
+    <p class="hint">{{localize "MEDIASOUPVTT.SettingsHelp.Note"}}</p>
+  </fieldset>
+</section>
