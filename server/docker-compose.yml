@@ -6,6 +6,8 @@ services:
     ports:
       - "3000:3000"
       - "10000-10100:10000-10100/udp"
+      # ICE-TCP fallback for clients behind UDP-blocking firewalls.
+      - "10000-10100:10000-10100/tcp"
     environment:
       - MEDIASOUP_LISTEN_ADDR=0.0.0.0:3000
       - MEDIASOUP_NUM_WORKERS=2
@@ -20,8 +22,11 @@ services:
       # server terminate TLS itself instead of using the nginx reverse proxy.
       # - MEDIASOUP_TLS_CERT=/app/tls/fullchain.pem
       # - MEDIASOUP_TLS_KEY=/app/tls/privkey.pem
-      # Uncomment and set for NAT/public deployment
-      # - MEDIASOUP_ANNOUNCED_IP=your-public-ip
+      # REQUIRED: the address browsers reach this host on (public IP or DNS
+      # name). The server listens on 0.0.0.0 inside the container and refuses to
+      # start without it, because it would otherwise advertise an unroutable
+      # 0.0.0.0 ICE candidate and no media would flow.
+      - MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP:-}
     restart: unless-stopped
     volumes:
       - ./logs:/app/logs

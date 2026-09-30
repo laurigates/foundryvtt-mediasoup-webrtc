@@ -22,6 +22,10 @@ async fn main() -> Result<()> {
     let config = Config::load()?;
     info!("Loaded configuration: listening on {}", config.listen_addr);
 
+    // Refuse to start with a configuration that cannot carry media (e.g. a
+    // 0.0.0.0 listen IP with no announced IP) instead of failing silently later.
+    config.validate()?;
+
     // Create and start the server
     let server = MediaSoupServer::new(config).await?;
 

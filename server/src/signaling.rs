@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 ///
 /// The client uses a flat envelope:
 /// `{ "type", "requestId", "userId", <payload fields...> }`
-/// (see `src/client/MediaSoupVTTClient.js` `_sendSignalingRequest`).
+/// (see `src/client/MediaSoupVTTClient.ts` `_sendSignalingRequest`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct IncomingMessage {
     /// Operation name, e.g. `produce`, `consume`, `getRouterRtpCapabilities`.
@@ -25,7 +25,46 @@ pub struct IncomingMessage {
     pub payload: Map<String, Value>,
 }
 
+/// Why a raw signaling frame could not be turned into an [`IncomingMessage`].
+///
+/// Carries the `requestId` when the frame was at least a JSON object with a
+/// string `requestId`, so the server can still correlate its error reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameParseError {
+    pub request_id: Option<String>,
+    pub error: String,
+}
+
 impl IncomingMessage {
+    /// Parse a raw text frame in two steps: first to a generic JSON value, then
+    /// to the typed envelope. Parsing to a `Value` first means a frame that is
+    /// valid JSON but has the wrong shape (e.g. a numeric `type`) still yields
+    /// its `requestId`, so the client gets an error reply instead of silence
+    /// and its pending request does not hang until timeout.
+    pub fn parse(text: &str) -> std::result::Result<Self, FrameParseError> {
+        let value: Value = serde_json::from_str(text).map_err(|e| FrameParseError {
+            request_id: None,
+            error: format!("Malformed signaling frame: invalid JSON: {e}"),
+        })?;
+
+        let request_id = value
+            .get("requestId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        if !value.is_object() {
+            return Err(FrameParseError {
+                request_id,
+                error: "Malformed signaling frame: expected a JSON object".to_string(),
+            });
+        }
+
+        serde_json::from_value(value).map_err(|e| FrameParseError {
+            request_id,
+            error: format!("Malformed signaling frame: {e}"),
+        })
+    }
+
     /// Return the payload fields as a JSON object value for typed deserialization.
     pub fn payload_value(&self) -> Value {
         Value::Object(self.payload.clone())
@@ -81,6 +120,18 @@ impl OutgoingMessage {
         }
     }
 
+    /// Error reply to a frame that may not carry a `requestId` (e.g. one that
+    /// failed to parse). Serializes as `{requestId?, error}`.
+    pub fn error_reply(request_id: Option<String>, error: String) -> Self {
+        Self {
+            request_id,
+            msg_type: None,
+            error: Some(error),
+            data: None,
+            extra: Map::new(),
+        }
+    }
+
     /// Server-initiated notification (no response expected). `fields` should be a
     /// JSON object whose entries become top-level fields on the wire.
     pub fn notification(msg_type: &str, fields: Value) -> Self {
@@ -121,6 +172,11 @@ pub struct ProduceData {
 
     #[serde(rename = "appData", default)]
     pub app_data: Option<Value>,
+
+    /// Create the producer paused (the client's track starts disabled, e.g.
+    /// push-to-talk or a hidden camera), so it is never announced as live.
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// Consumer creation data (`consume`).
@@ -187,4 +243,34 @@ pub struct ConsumedResponse {
     /// this onto the consumer after resuming it.
     #[serde(rename = "producerPaused")]
     pub producer_paused: bool,
+}
+
+/// One entry of the `getProducers` response: a producer owned by another peer
+/// in the caller's room. Same fields as the `newProducer` notification
+/// (lowercase `kind`, current `paused` state).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProducerInfo {
+    #[serde(rename = "producerId")]
+    pub producer_id: String,
+
+    #[serde(rename = "userId")]
+    pub user_id: String,
+
+    /// `"audio"` or `"video"`.
+    pub kind: String,
+
+    pub paused: bool,
+}
+
+/// `getProducers` response: `{producers: [ProducerInfo...]}`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProducersResponse {
+    pub producers: Vec<ProducerInfo>,
+}
+
+/// `restartIce` response: `{iceParameters}`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestartIceResponse {
+    #[serde(rename = "iceParameters")]
+    pub ice_parameters: Value,
 }
