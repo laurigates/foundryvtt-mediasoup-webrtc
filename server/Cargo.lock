@@ -972,9 +972,9 @@ dependencies = [
 
 [[package]]
 name = "mediasoup"
-version = "0.28.1"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f660f12f329378225dea674e9ba4a74a86d386222c8e65e344f0fe2ebece7417"
+checksum = "a347fa0a1bd3d195233b09d41c55b5c70562b0006ab4b4c3c60c89dba2d8c5ef"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -1025,9 +1025,9 @@ dependencies = [
 
 [[package]]
 name = "mediasoup-sys"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75e52706111c7c7e7b15d04c40e8019a3b0f652f768a6b9bc993d0aa8f4fa16b"
+checksum = "85eae93b38f8840f30ab93afb2d5a45b2b087237afd3464dc086a250e58e196f"
 dependencies = [
  "planus",
  "planus-codegen",
@@ -1037,9 +1037,9 @@ dependencies = [
 
 [[package]]
 name = "mediasoup-types"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed1b0f0fa4f2cc777e6162c3a5ce44d9f6bf110ced0911fa41e48416e78245f4"
+checksum = "48bb1f01a29d01fe551d526ecfd49561eafc27b24e19d1a51f6cad60a755a374"
 dependencies = [
  "once_cell",
  "regex",
