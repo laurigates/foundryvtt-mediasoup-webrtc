@@ -38,7 +38,7 @@
     "mediasoup-client": "^3.24.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.3",
     "fake-mediastreamtrack": "^2.2.1",
