@@ -9,7 +9,7 @@ description = "MediaSoup server for FoundryVTT WebRTC plugin"
 [dependencies]
 # MediaSoup core. The bundled C++ worker (mediasoup-sys) needs a C++20
 # compiler, Python >= 3.10, meson and ninja at build time.
-mediasoup = "0.28.1"
+mediasoup = "0.30.0"
 
 # WebSocket server
 tokio-tungstenite = "0.30"
