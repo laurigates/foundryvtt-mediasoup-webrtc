@@ -9,38 +9,38 @@ description = "MediaSoup server for FoundryVTT WebRTC plugin"
 [dependencies]
 # MediaSoup core. The bundled C++ worker (mediasoup-sys) needs a C++20
 # compiler, Python >= 3.10, meson and ninja at build time.
-mediasoup = "0.28.1"
+mediasoup = "=0.28.1"
 
 # WebSocket server
-tokio-tungstenite = "0.30"
-tokio = { version = "1.53", features = ["full"] }
+tokio-tungstenite = "=0.30.0"
+tokio = { version = "=1.53.1", features = ["full"] }
 
 # Optional native TLS termination (wss://). Uses the `ring` crypto provider to
 # avoid an aws-lc-rs/cmake build dependency. PEM parsing uses the
 # `rustls-pki-types` `PemObject` API re-exported by rustls.
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 
 # JSON serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 
 # UUID generation
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid = { version = "=1.26.1", features = ["v4", "serde"] }
 
 # Logging (`env-filter` enables RUST_LOG)
-tracing = "0.1"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 
 # Error handling
-anyhow = "1.0"
-thiserror = "2"
+anyhow = "=1.0.104"
+thiserror = "=2.0.21"
 
 # Collections
-dashmap = "6"
+dashmap = "=6.2.1"
 
 # Network utilities
-futures-util = "0.3"
+futures-util = "=0.3.34"
 
 [dev-dependencies]
 # Generates a throwaway self-signed PEM cert/key pair for the TLS loader test.
-rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
