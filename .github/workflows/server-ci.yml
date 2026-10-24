@@ -2,19 +2,22 @@ name: Server CI
 
 # Rust gates for the MediaSoup SFU server (server/). Path-filtered so it only
 # runs when the server, the client/server signaling contract
-# (src/constants/**) or this workflow changes, not on unrelated module edits.
+# (src/constants/**), the root rust-toolchain.toml (which pins the compiler for
+# server/) or this workflow changes, not on unrelated module edits.
 on:
   push:
     branches: [main]
     paths:
       - "server/**"
       - "src/constants/**"
+      - "rust-toolchain.toml"
       - ".github/workflows/server-ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "server/**"
       - "src/constants/**"
+      - "rust-toolchain.toml"
       - ".github/workflows/server-ci.yml"
 
 permissions:
