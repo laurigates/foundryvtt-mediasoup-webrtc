@@ -146,41 +146,7 @@ interface FoundryAVNamespace {
   [key: string]: any;
 }
 
-// ==== Scene controls and render hooks ====
-
-/** A tool inside a scene control (v13+: a Record keyed by tool name). */
-interface FoundrySceneControlTool {
-  name: string;
-  title: string;
-  icon: string;
-  order?: number;
-  button?: boolean;
-  toggle?: boolean;
-  active?: boolean;
-  visible?: boolean;
-  onChange?: (event: Event, active: boolean) => void;
-  [key: string]: unknown;
-}
-
-/** A scene control group (v13+). The scene-controls hook receives a Record of these. */
-interface FoundrySceneControl {
-  name: string;
-  title: string;
-  icon: string;
-  order?: number;
-  visible?: boolean;
-  activeTool?: string;
-  tools: Record<string, FoundrySceneControlTool>;
-  onChange?: (event: Event, active: boolean) => void;
-  onToolChange?: (event: Event, tool: FoundrySceneControlTool) => void;
-  [key: string]: unknown;
-}
-
-/**
- * Handler shape for the v13+ scene-controls hook: `controls` is a Record keyed
- * by control name (it was an Array before v13).
- */
-type FoundrySceneControlsHook = (controls: Record<string, FoundrySceneControl>) => unknown;
+// ==== Render hooks ====
 
 /** `renderApplicationV2` / `render<AppName>` hook handler (element is an HTMLElement, not jQuery). */
 type FoundryRenderApplicationV2Hook = (
@@ -264,19 +230,12 @@ declare global {
   const ui: FoundryUI;
   const Hooks: FoundryHooks;
   const CONFIG: { WebRTC: FoundryWebRTCConfig; [key: string]: any };
-  // Foundry application base classes (v1 + v2 namespaces). Loose on purpose.
-  const FormApplication: any;
-  const Application: any;
-  const Dialog: any;
   const foundry: { av: FoundryAVNamespace; [key: string]: any };
 
   type AVClient = FoundryAVClient;
   type AVMaster = FoundryAVMaster;
   type AVSettings = FoundryAVSettings;
   type AVClientSettings = FoundryAVClientSettings;
-  type SceneControl = FoundrySceneControl;
-  type SceneControlTool = FoundrySceneControlTool;
-  type SceneControlsHook = FoundrySceneControlsHook;
   type RenderApplicationV2Hook = FoundryRenderApplicationV2Hook;
 
   interface Window {
