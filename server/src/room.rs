@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::num::{NonZeroU8, NonZeroU32};
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, Weak};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, mpsc};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -20,6 +21,34 @@ use uuid::Uuid;
 /// token, so anyone holding the token can replace any user's connection (a
 /// denial of service against, say, the GM) until per-user tokens exist.
 pub const CLOSE_CODE_REPLACED: u16 = 4001;
+
+/// Most WebRTC transports one peer may hold. The module opens two (send and
+/// receive) per connection; the rest is headroom. Each transport takes one
+/// RTC port per enabled protocol (#118).
+pub const MAX_TRANSPORTS_PER_PEER: usize = 8;
+
+/// Most producers one peer may hold at once. The module produces at most a
+/// microphone and a camera track; the rest is headroom (e.g. screen share).
+pub const MAX_PRODUCERS_PER_PEER: usize = 16;
+
+/// Most consumers one peer may hold at once. The module consumes each other
+/// peer's audio and video, so this allows rooms of a few hundred peers.
+pub const MAX_CONSUMERS_PER_PEER: usize = 512;
+
+/// Capacity of a peer's outgoing message queue. A peer that lets this many
+/// messages pile up (it stopped reading its socket) is disconnected instead
+/// of buffering without bound (#118).
+pub const PEER_QUEUE_CAPACITY: usize = 1024;
+
+/// Refuse to create one more `what` when the peer already holds `max`.
+fn ensure_below_limit(held: usize, max: usize, what: &str) -> Result<()> {
+    if held >= max {
+        return Err(MediaSoupError::InvalidRequest(format!(
+            "Too many {what}: at most {max} per peer"
+        )));
+    }
+    Ok(())
+}
 
 /// Lowercase wire representation of a media kind ("audio" / "video"),
 /// matching the constants the FoundryVTT client compares against.
@@ -108,13 +137,14 @@ pub struct Peer {
     pub transports: DashMap<String, WebRtcTransport>,
     pub producers: DashMap<String, Producer>,
     pub consumers: DashMap<String, Consumer>,
-    pub message_sender: mpsc::UnboundedSender<OutgoingMessage>,
+    /// Bounded (see [`PEER_QUEUE_CAPACITY`]); see [`Peer::send_message`].
+    pub message_sender: mpsc::Sender<OutgoingMessage>,
     shutdown: Notify,
     close_request: Mutex<Option<CloseRequest>>,
 }
 
 impl Peer {
-    pub fn new(user_id: String, message_sender: mpsc::UnboundedSender<OutgoingMessage>) -> Self {
+    pub fn new(user_id: String, message_sender: mpsc::Sender<OutgoingMessage>) -> Self {
         Self::with_session(user_id, None, message_sender)
     }
 
@@ -122,7 +152,7 @@ impl Peer {
     pub fn with_session(
         user_id: String,
         session_id: Option<String>,
-        message_sender: mpsc::UnboundedSender<OutgoingMessage>,
+        message_sender: mpsc::Sender<OutgoingMessage>,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -137,12 +167,26 @@ impl Peer {
         }
     }
 
-    /// Send a message to this peer
+    /// Queue a message for this peer. Never blocks (it is also called from
+    /// mediasoup's notification thread): when the queue is full the peer is
+    /// not keeping up, so its connection is asked to shut down.
     pub fn send_message(&self, message: OutgoingMessage) -> Result<()> {
-        self.message_sender
-            .send(message)
-            .map_err(|_| MediaSoupError::InvalidRequest("Peer disconnected".to_string()))?;
-        Ok(())
+        match self.message_sender.try_send(message) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                warn!(
+                    "Peer {} has {} unsent messages; disconnecting it",
+                    self.id, PEER_QUEUE_CAPACITY
+                );
+                self.request_shutdown(None);
+                Err(MediaSoupError::InvalidRequest(
+                    "Peer send queue full".to_string(),
+                ))
+            }
+            Err(TrySendError::Closed(_)) => Err(MediaSoupError::InvalidRequest(
+                "Peer disconnected".to_string(),
+            )),
+        }
     }
 
     /// Ask this peer's connection task to stop (e.g. it was replaced by a newer
@@ -372,6 +416,9 @@ impl Room {
         listen: &TransportListenOptions,
     ) -> Result<WebRtcTransport> {
         let peer = self.require_peer(peer_id)?;
+        // A peer's requests are handled one at a time, so the count cannot
+        // change between this check and the insert below.
+        ensure_below_limit(peer.transports.len(), MAX_TRANSPORTS_PER_PEER, "transports")?;
 
         let mut infos = listen.listen_infos()?.into_iter();
         // `listen_infos` guarantees at least one entry.
@@ -435,6 +482,7 @@ impl Room {
         paused: bool,
     ) -> Result<Producer> {
         let peer = self.require_peer(peer_id)?;
+        ensure_below_limit(peer.producers.len(), MAX_PRODUCERS_PER_PEER, "producers")?;
 
         let transport = peer
             .transports
@@ -515,6 +563,7 @@ impl Room {
         rtp_capabilities: RtpCapabilities,
     ) -> Result<Consumer> {
         let peer = self.require_peer(peer_id)?;
+        ensure_below_limit(peer.consumers.len(), MAX_CONSUMERS_PER_PEER, "consumers")?;
 
         let transport = peer
             .transports
@@ -717,8 +766,8 @@ mod tests {
         (worker_manager, worker, room)
     }
 
-    fn new_peer(user_id: &str) -> (Arc<Peer>, mpsc::UnboundedReceiver<OutgoingMessage>) {
-        let (tx, rx) = mpsc::unbounded_channel();
+    fn new_peer(user_id: &str) -> (Arc<Peer>, mpsc::Receiver<OutgoingMessage>) {
+        let (tx, rx) = mpsc::channel(PEER_QUEUE_CAPACITY);
         (Arc::new(Peer::new(user_id.to_string(), tx)), rx)
     }
 
@@ -738,8 +787,12 @@ mod tests {
 
     /// RTP parameters shaped like a Chrome Opus send track.
     fn opus_rtp_parameters(ssrc: u32) -> RtpParameters {
+        opus_rtp_parameters_with_mid(ssrc, "0")
+    }
+
+    fn opus_rtp_parameters_with_mid(ssrc: u32, mid: &str) -> RtpParameters {
         serde_json::from_value(serde_json::json!({
-            "mid": "0",
+            "mid": mid,
             "codecs": [{
                 "mimeType": "audio/opus",
                 "payloadType": 111,
@@ -778,8 +831,8 @@ mod tests {
     fn new_session_peer(
         user_id: &str,
         session_id: &str,
-    ) -> (Arc<Peer>, mpsc::UnboundedReceiver<OutgoingMessage>) {
-        let (tx, rx) = mpsc::unbounded_channel();
+    ) -> (Arc<Peer>, mpsc::Receiver<OutgoingMessage>) {
+        let (tx, rx) = mpsc::channel(PEER_QUEUE_CAPACITY);
         let peer = Peer::with_session(user_id.to_string(), Some(session_id.to_string()), tx);
         (Arc::new(peer), rx)
     }
@@ -969,6 +1022,108 @@ mod tests {
         assert_eq!(
             old.take_close_request().map(|c| c.code),
             Some(CLOSE_CODE_REPLACED)
+        );
+    }
+
+    /// A peer that stops draining its queue is asked to shut down instead of
+    /// buffering messages without bound.
+    #[tokio::test]
+    async fn full_send_queue_disconnects_the_peer() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let peer = Peer::new("slow".to_string(), tx);
+        let message = || OutgoingMessage::notification("producerClosed", serde_json::json!({}));
+        peer.send_message(message()).expect("first fits");
+        peer.send_message(message()).expect("second fits");
+        let err = peer.send_message(message()).expect_err("queue full");
+        assert!(err.to_string().contains("queue full"), "{err}");
+        tokio::time::timeout(std::time::Duration::from_secs(1), peer.shutdown_requested())
+            .await
+            .expect("slow peer was asked to shut down");
+        assert_eq!(peer.take_close_request(), None);
+
+        // Once drained it is "disconnected" only when the receiver is gone.
+        rx.recv().await.expect("queued");
+        peer.send_message(message()).expect("room again");
+        drop(rx);
+        let err = peer.send_message(message()).expect_err("receiver gone");
+        assert!(err.to_string().contains("disconnected"), "{err}");
+    }
+
+    /// Per-peer caps on transports and producers (#118).
+    #[tokio::test]
+    async fn per_peer_transport_and_producer_limits() {
+        let (_manager, _worker, room) = test_room().await;
+        let (a, _rx_a) = new_peer("user-a");
+        room.add_peer(a.clone());
+
+        let mut transports = Vec::new();
+        for _ in 0..MAX_TRANSPORTS_PER_PEER {
+            transports.push(
+                room.create_webrtc_transport(&a.id, &loopback_listen())
+                    .await
+                    .expect("transport under the limit"),
+            );
+        }
+        let err = room
+            .create_webrtc_transport(&a.id, &loopback_listen())
+            .await
+            .expect_err("transport over the limit");
+        assert!(matches!(err, MediaSoupError::InvalidRequest(_)), "{err}");
+        assert!(err.to_string().contains("Too many transports"), "{err}");
+        assert_eq!(a.transports.len(), MAX_TRANSPORTS_PER_PEER);
+
+        let transport_id = transports[0].id().to_string();
+        // The returned handles can go: the peer's map keeps each producer.
+        for i in 0..MAX_PRODUCERS_PER_PEER {
+            let _ = room
+                .create_producer(
+                    &a.id,
+                    &transport_id,
+                    MediaKind::Audio,
+                    opus_rtp_parameters_with_mid(5000 + i as u32, &i.to_string()),
+                    None,
+                    false,
+                )
+                .await
+                .expect("producer under the limit");
+        }
+        let err = room
+            .create_producer(
+                &a.id,
+                &transport_id,
+                MediaKind::Audio,
+                opus_rtp_parameters_with_mid(6000, "over"),
+                None,
+                false,
+            )
+            .await
+            .expect_err("producer over the limit");
+        assert!(err.to_string().contains("Too many producers"), "{err}");
+
+        // Closing one frees a slot.
+        let some_id = a.producers.iter().next().unwrap().key().clone();
+        room.close_producer(&a.id, &some_id).expect("close");
+        let _ = room
+            .create_producer(
+                &a.id,
+                &transport_id,
+                MediaKind::Audio,
+                opus_rtp_parameters_with_mid(6001, "again"),
+                None,
+                false,
+            )
+            .await
+            .expect("slot freed");
+    }
+
+    #[test]
+    fn ensure_below_limit_refuses_at_the_cap() {
+        assert!(ensure_below_limit(0, 1, "things").is_ok());
+        let err = ensure_below_limit(1, 1, "things").unwrap_err();
+        assert!(matches!(err, MediaSoupError::InvalidRequest(_)));
+        assert_eq!(
+            err.to_string(),
+            "Invalid request: Too many things: at most 1 per peer"
         );
     }
 

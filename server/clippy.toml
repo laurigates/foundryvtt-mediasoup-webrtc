@@ -1,0 +1,17 @@
+# A DashMap guard holds a shard lock. Held across `.await`, it blocks every
+# other task touching that shard and can deadlock the runtime (#124): clone
+# the value out and drop the guard first. Enforced by
+# `clippy::await_holding_invalid_type` (denied in Cargo.toml).
+await-holding-invalid-types = [
+    { path = "dashmap::mapref::one::Ref", reason = "DashMap shard lock held across .await; clone the value and drop the guard" },
+    { path = "dashmap::mapref::one::RefMut", reason = "DashMap shard lock held across .await; clone the value and drop the guard" },
+    { path = "dashmap::mapref::one::MappedRef", reason = "DashMap shard lock held across .await; clone the value and drop the guard" },
+    { path = "dashmap::mapref::one::MappedRefMut", reason = "DashMap shard lock held across .await; clone the value and drop the guard" },
+    { path = "dashmap::mapref::multiple::RefMulti", reason = "DashMap shard lock held across .await; collect what you need before awaiting" },
+    { path = "dashmap::mapref::multiple::RefMutMulti", reason = "DashMap shard lock held across .await; collect what you need before awaiting" },
+    { path = "dashmap::mapref::entry::Entry", reason = "DashMap shard lock held across .await; finish the entry before awaiting" },
+    { path = "dashmap::mapref::entry::OccupiedEntry", reason = "DashMap shard lock held across .await; finish the entry before awaiting" },
+    { path = "dashmap::mapref::entry::VacantEntry", reason = "DashMap shard lock held across .await; finish the entry before awaiting" },
+    { path = "dashmap::iter::Iter", reason = "DashMap iterator holds a shard lock; collect before awaiting" },
+    { path = "dashmap::iter::IterMut", reason = "DashMap iterator holds a shard lock; collect before awaiting" },
+]
