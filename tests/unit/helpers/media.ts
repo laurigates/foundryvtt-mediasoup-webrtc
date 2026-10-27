@@ -55,6 +55,14 @@ export const FAKE_DEVICES: MediaDeviceInfo[] = [
   { kind: 'audiooutput', deviceId: 'spk-1', label: 'Speakers', groupId: 'g4' },
 ].map((d) => ({ ...d, toJSON: () => d }) as MediaDeviceInfo);
 
+let installed: FakeMediaDevices | null = null;
+
+/** The fakes tests/setup.ts installed, to drive `failKinds` / `delayMs`. */
+export function mediaFakes(): FakeMediaDevices {
+  if (!installed) throw new Error('installMediaFakes() has not run');
+  return installed;
+}
+
 /** Install `MediaStream` and `navigator.mediaDevices` fakes. */
 export function installMediaFakes(): FakeMediaDevices {
   const g = globalThis as any;
@@ -84,6 +92,7 @@ export function installMediaFakes(): FakeMediaDevices {
     configurable: true,
     value: { getUserMedia: state.getUserMedia, enumerateDevices: state.enumerateDevices },
   });
+  installed = state;
   return state;
 }
 
