@@ -84,7 +84,11 @@ jobs:
           fi
 
   foundry:
-    name: Foundry ${{ matrix.foundry }}
+    # A static name: GitHub does not expand the matrix of a job whose `if` is
+    # false, so "Foundry ${{ matrix.foundry }}" showed up literally on skipped
+    # runs (#144). The legs are named "Foundry e2e (14.368)" and
+    # "Foundry e2e (13.351)" from the matrix value.
+    name: Foundry e2e
     needs: preflight
     if: needs.preflight.outputs.has_secrets == 'true'
     runs-on: ubuntu-latest
@@ -101,19 +105,17 @@ jobs:
     # + the suite, which playwright.foundry.config.ts stops at globalTimeout
     # (35 min) so its report is still written and uploaded.
     timeout-minutes: 75
-    # The v13 leg reports but does not gate: module.json keeps minimum "13"
-    # only while it passes (Stage 5A decides).
-    continue-on-error: ${{ matrix.experimental }}
+    # Only the 14.368 leg gates. The v13 leg reports but does not gate:
+    # module.json keeps minimum "13" only while it passes (Stage 5A decides).
+    # Derived here rather than a second matrix key, which would also show up
+    # in the leg names.
+    continue-on-error: ${{ matrix.foundry != '14.368' }}
     strategy:
       fail-fast: false
       # Same license for every leg: one Foundry server at a time.
       max-parallel: 1
       matrix:
-        include:
-          - foundry: "14.368"
-            experimental: false
-          - foundry: "13.351"
-            experimental: true
+        foundry: ["14.368", "13.351"]
     env:
       FOUNDRY_VERSION: ${{ matrix.foundry }}
       FOUNDRY_URL: http://127.0.0.1:30000
