@@ -83,6 +83,8 @@ empty or unrecognised value means the default.
 | `MEDIASOUP_AUTH_TOKEN` | unset | Shared secret clients must send in `authenticate`. Unset or empty means **no authentication** (a warning is logged). Use the same value as the module's server token setting. |
 | `MEDIASOUP_TLS_CERT` | unset | PEM certificate chain for native `wss://`. |
 | `MEDIASOUP_TLS_KEY` | unset | PEM private key for native `wss://`. TLS is enabled only when both are set; with just one, the server serves plain `ws://`. |
+| `MEDIASOUP_MAX_CONNECTIONS` | `500` | Most open WebSocket connections in total. `0` means unlimited; unset, empty or unparsable means the default. |
+| `MEDIASOUP_MAX_CONNECTIONS_PER_IP` | `32` | Most open connections from one source IP. `0` means unlimited. Behind a reverse proxy every client has the proxy's address: raise it or set it to `0` there. |
 
 ### Startup validation
 
@@ -135,6 +137,27 @@ worlds on the same server are isolated. Each room has its own mediasoup router;
 the router is created when the first peer joins and released when the last one
 leaves. A missing or `null` `roomId` means the room `default`. Any other value
 must be a non-empty string of at most 256 bytes.
+
+### Resource limits
+
+Against resource exhaustion (#118), the server enforces:
+
+- **Connection caps** (`MEDIASOUP_MAX_CONNECTIONS`,
+  `MEDIASOUP_MAX_CONNECTIONS_PER_IP`), checked when the TCP connection is
+  accepted, before any TLS or WebSocket work. A refused connection is closed
+  at once (the browser sees a failed WebSocket connect). Connections that have
+  not authenticated yet count too.
+- **Handshake timeout:** the TLS and WebSocket handshakes must finish within
+  10 seconds; the `authenticate` frame then has 30 more.
+- **Message size:** inbound WebSocket messages and frames are limited to
+  256 KiB (legitimate requests are a few KiB). A bigger one closes the
+  connection.
+- **Per-peer objects:** at most 8 transports, 16 producers and 512 consumers
+  per connection. A request over a limit gets the error
+  `Too many <transports|producers|consumers>: at most N per peer`; the
+  connection stays open.
+- **Outgoing queue:** up to 1024 messages may wait for a peer. A peer that
+  stops reading its socket until the queue is full is disconnected.
 
 ## Signaling protocol
 
@@ -224,7 +247,9 @@ room.
 
 `Dockerfile` is a two-stage build on Debian bookworm (`rust:1-bookworm`
 builder, `debian:bookworm-slim` runtime, non-root user). `docker-compose.yml`
-maps the WebSocket port and the RTC range on UDP and TCP:
+maps the WebSocket port and the RTC range on UDP and TCP. The image `EXPOSE`s
+the defaults (3000 and 10000-10100 on UDP and TCP); its health check reads the
+port from `MEDIASOUP_LISTEN_ADDR`, so it follows a changed listen address:
 
 ```bash
 cd server
@@ -322,7 +347,7 @@ world can read it.
 ## Security
 
 See [SECURITY_AUDIT.md](SECURITY_AUDIT.md) for the authentication model, its
-known limitations and dependency advisories.
+known limitations, the resource limits and dependency advisories.
 
 ## License
 

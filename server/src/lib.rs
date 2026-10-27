@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod error;
+pub mod limits;
 pub mod room;
 pub mod server;
 pub mod signaling;

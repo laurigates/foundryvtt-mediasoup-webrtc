@@ -44,3 +44,7 @@ futures-util = "0.3"
 [dev-dependencies]
 # Generates a throwaway self-signed PEM cert/key pair for the TLS loader test.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+
+[lints.clippy]
+# Paths of the guard types are listed in clippy.toml (#124).
+await_holding_invalid_type = "deny"
