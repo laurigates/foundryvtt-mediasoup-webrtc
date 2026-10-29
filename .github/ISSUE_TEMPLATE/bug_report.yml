@@ -1,0 +1,74 @@
+name: Bug report
+description: Something does not work with the module or the SFU server.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security vulnerabilities go through
+        [GitHub Security Advisories](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/security/advisories/new)
+        instead (see SECURITY.md). Remove the auth token and any private
+        addresses from logs before pasting them.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Enable the module and set the server URL
+        2. Set the conference mode to Audio/Video
+        3. ...
+  - type: input
+    id: foundry-version
+    attributes:
+      label: Foundry VTT version
+      placeholder: "14.368"
+    validations:
+      required: true
+  - type: input
+    id: module-version
+    attributes:
+      label: MediaSoupVTT module version
+      placeholder: "0.7.20"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      description: Of the user who sees the problem (or the Foundry desktop app).
+      placeholder: Chrome 140 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: server
+    attributes:
+      label: SFU server version and deployment
+      description: |
+        Server release or commit, how it runs (Docker, `cargo run`, behind a
+        reverse proxy, TLS) and whether `MEDIASOUP_ANNOUNCED_IP` is set.
+    validations:
+      required: true
+  - type: textarea
+    id: client-log
+    attributes:
+      label: Browser console output (debug logging on)
+      description: |
+        Turn on **MediaSoupVTT Debug Logging** in Configure Settings, reload,
+        reproduce the problem and paste the `MediaSoupVTT |` console lines
+        (enable the "Verbose" level in Chrome DevTools to see debug lines).
+      render: text
+  - type: textarea
+    id: server-log
+    attributes:
+      label: Server logs
+      description: |
+        The SFU's stdout around the problem. `RUST_LOG=mediasoup_server=debug`
+        gives more detail (see server/README.md).
+      render: text

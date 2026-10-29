@@ -66,11 +66,14 @@ RUN chmod +x /usr/local/bin/health-check.sh
 USER mediasoup
 WORKDIR /app
 
-# Expose ports
-EXPOSE 4443
+# Signaling (the MEDIASOUP_LISTEN_ADDR default, 0.0.0.0:3000) and the default
+# RTC range (MEDIASOUP_RTC_MIN_PORT/MAX_PORT) on UDP and the ICE-TCP fallback.
+# EXPOSE is documentation only; publish the ports you configure.
+EXPOSE 3000
 EXPOSE 10000-10100/udp
+EXPOSE 10000-10100/tcp
 
-# Health check - use script to check if port is listening
+# Health check: is the signaling port (from MEDIASOUP_LISTEN_ADDR) listening?
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD /usr/local/bin/health-check.sh
 

@@ -29,6 +29,7 @@ async fn test_server_startup() {
         },
         auth_token: None,
         tls: None,
+        limits: Default::default(),
     };
 
     // Test that server can be created

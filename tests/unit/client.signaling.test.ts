@@ -9,6 +9,7 @@ import {
   AuthenticationError,
   type RemoteTrackInfo,
   SignalingError,
+  validateServerUrl,
 } from '../../src/client/MediaSoupVTTClient';
 import { FakeSfu } from './helpers/fake-ws';
 import { LOCAL_USER_ID, REMOTE_USER_ID, WORLD_ID } from './helpers/foundry-v14';
@@ -432,6 +433,31 @@ describe('connection failures', () => {
   it('produce while disconnected throws instead of queueing', async () => {
     const { core } = createCore({ sfu });
     await expect(core.startLocalAudio(audioTrack())).rejects.toThrow('Not connected');
+    expect(sfu.sockets).toHaveLength(0);
+  });
+});
+
+describe('validateServerUrl', () => {
+  it('returns a ws: or wss: URL unchanged', () => {
+    expect(validateServerUrl('ws://sfu.test:4443')).toBe('ws://sfu.test:4443');
+    expect(validateServerUrl('wss://sfu.example/path')).toBe('wss://sfu.example/path');
+  });
+
+  it('rejects a missing, unparseable or non-WebSocket URL', () => {
+    expect(() => validateServerUrl(undefined)).toThrow('MediaSoup server URL is not configured.');
+    expect(() => validateServerUrl('')).toThrow('MediaSoup server URL is not configured.');
+    expect(() => validateServerUrl('not-a-url')).toThrow('Invalid server URL: not-a-url');
+    expect(() => validateServerUrl('https://sfu.test')).toThrow(
+      'Invalid server URL protocol https: (use ws: or wss:).',
+    );
+  });
+
+  it('connect() rejects an unparseable or empty URL without opening a socket', async () => {
+    const bad = createCore({ sfu, serverUrl: 'not-a-url' }).core;
+    await expect(bad.connect()).rejects.toThrow('Invalid server URL: not-a-url');
+    const empty = createCore({ sfu, serverUrl: '' }).core;
+    await expect(empty.connect()).rejects.toThrow('MediaSoup server URL is not configured.');
+    expect(bad.isConnected || empty.isConnected).toBe(false);
     expect(sfu.sockets).toHaveLength(0);
   });
 });

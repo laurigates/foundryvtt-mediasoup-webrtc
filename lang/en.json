@@ -44,6 +44,7 @@
       "Reconnecting": "MediaSoupVTT: server settings changed, reconnecting audio/video.",
       "ConnectionError": "Could not connect to the MediaSoup server: {error}",
       "ServerUrlNotSet": "MediaSoup server URL not configured. Please set it in module settings.",
+      "InvalidServerUrl": "Invalid MediaSoup server URL \"{url}\". Use a ws:// or wss:// address.",
       "BrowserUnsupported": "This browser cannot run MediaSoup audio/video: {error}",
       "MediaAccessFailed": "Could not access your camera or microphone: {error}",
       "Reconnected": "Reconnected to the MediaSoup server.",

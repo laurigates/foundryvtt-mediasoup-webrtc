@@ -14,7 +14,7 @@ import {
   REMOTE_USER_ID,
   VOICE_THRESHOLD_DB,
 } from './helpers/foundry-v14';
-import { audioTrack, videoTrack } from './helpers/media';
+import { audioTrack, mediaFakes, videoTrack } from './helpers/media';
 import { createAVClient, createCore, flush, TOKEN, until } from './helpers/peers';
 
 const env = foundryEnv();
@@ -31,6 +31,7 @@ beforeEach(() => {
   env.audio.startLevelReports.mockClear();
   env.audio.stopLevelReports.mockClear();
   for (const fn of Object.values(env.notifications)) fn.mockClear();
+  mediaFakes().failKinds.clear();
 });
 
 afterEach(async () => {
@@ -408,7 +409,70 @@ describe('failures and teardown', () => {
     expect(await master.connect()).toBe(false);
     expect(sfu.sockets).toHaveLength(0);
     expect(env.notifications.error).toHaveBeenCalledWith(
-      expect.stringContaining('Invalid server URL protocol https:'),
+      'MediaSoupVTT: Invalid MediaSoup server URL "https://sfu.test". Use a ws:// or wss:// address.',
+      undefined,
+    );
+  });
+
+  it('an unparseable server URL is refused before any socket opens, with a localized error', async () => {
+    const { master, client } = av({ serverUrl: 'not-a-url' });
+    expect(await master.connect()).toBe(false);
+    expect(client.isConnected).toBe(false);
+    expect(sfu.sockets).toHaveLength(0);
+    expect(gum()).not.toHaveBeenCalled();
+    expect(env.notifications.error).toHaveBeenCalledTimes(1);
+    expect(env.notifications.error).toHaveBeenCalledWith(
+      'MediaSoupVTT: Invalid MediaSoup server URL "not-a-url". Use a ws:// or wss:// address.',
+      undefined,
+    );
+  });
+
+  it('an empty server URL is refused before any socket opens, with a "not configured" warning', async () => {
+    const { master, client } = av({ serverUrl: '' });
+    expect(await master.connect()).toBe(false);
+    expect(client.isConnected).toBe(false);
+    expect(sfu.sockets).toHaveLength(0);
+    expect(gum()).not.toHaveBeenCalled();
+    // A missing URL is a setup step, not a fault: a warning, not an error.
+    expect(env.notifications.error).not.toHaveBeenCalled();
+    expect(env.notifications.warn).toHaveBeenCalledWith(
+      'MediaSoupVTT: MediaSoup server URL not configured. Please set it in module settings.',
+      undefined,
+    );
+  });
+
+  it('when neither the camera nor the microphone can be opened it warns, stays connected and produces nothing', async () => {
+    mediaFakes().failKinds.add('audio').add('video');
+    const { master, client } = av({ settings: { voiceMode: 'always' } });
+    expect(await master.connect()).toBe(true);
+    await flush(20);
+    // Both together, then each alone.
+    expect(gum()).toHaveBeenCalledTimes(3);
+    expect(client.isConnected).toBe(true);
+    expect(client.localStream).toBeNull();
+    expect(sfu.producersOf(LOCAL_USER_ID)).toHaveLength(0);
+    expect(sfu.requests('produce')).toHaveLength(0);
+    expect(env.notifications.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Could not access your camera or microphone: No camera'),
+      undefined,
+    );
+  });
+
+  it('when only the camera fails it falls back to audio only and sends the microphone without a warning', async () => {
+    mediaFakes().failKinds.add('video');
+    const { master, client } = av({ settings: { voiceMode: 'always' } });
+    expect(await master.connect()).toBe(true);
+    await flush(20);
+    expect(gum().mock.calls.map(([c]) => [Boolean(c.audio), Boolean(c.video)])).toEqual([
+      [true, true],
+      [true, false],
+    ]);
+    expect(client.isAudioEnabled()).toBe(true);
+    expect(client.isVideoEnabled()).toBe(false);
+    expect(localProducer('audio')?.paused).toBe(false);
+    expect(localProducer('video')).toBeUndefined();
+    expect(env.notifications.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Could not access your camera or microphone'),
       undefined,
     );
   });
