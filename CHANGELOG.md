@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.0.0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v0.7.20...foundryvtt-mediasoup-webrtc-v1.0.0) (2026-10-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* the autoConnect and default device settings are removed; A/V is enabled via Configure Audio/Video. The server refuses a wildcard listen IP without MEDIASOUP_ANNOUNCED_IP, must be deployed together with this client, and needs Rust 1.88.
+
+### Features
+
+* fix all remaining test failures and add comprehensive Makefile ([#109](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/109)) ([a16ad3b](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/a16ad3b5e6d02ce5dd86e955444f2d8750b42d61))
+* Foundry v14 support, dependency upgrades, and end-to-end A/V tests ([#143](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/143)) ([950aa12](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/950aa12c47ba916788c5bc26b8c2db24f8127c80))
+* **server:** bound signaling resources and fix the Docker port ([f8c740d](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/f8c740d764d982ff489b344811e8cca47142bd94)), closes [#118](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/118) [#126](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/126)
+
+
+### Bug Fixes
+
+* **client:** localize the invalid server URL notification ([1b17abf](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/1b17abf0ab67f18d1d8388ffbfa1c9274f5c6fef))
+* critical signaling protocol + consume path, auth/TLS, CHANGELOG markers ([#127](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/127)) ([a0c0f90](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/a0c0f901798868113a2068456f29689c69a6216c))
+* **deps:** update rust crate mediasoup to 0.29.0 ([#145](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/145)) ([e776e4b](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/e776e4b79d025e829eca853cb2108aa815a8d434))
+* server resource lifecycle — release empty rooms, apply RTC port range ([#123](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/123)) ([#131](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/131)) ([fe6d575](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/fe6d57582d51b0bc58dd536da74123b25022e24f))
+
+
+### Documentation
+
+* add CONTRIBUTING, PR/issue templates and client architecture ([184ede7](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/184ede71e850505cf845785ea81ba6b5cf55a867))
+
+
+### Miscellaneous
+
+* **claude:** allow scheduling and notification tools without prompting ([#140](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/140)) ([2bc62a0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/2bc62a098a68e80b6d4f7781ded0a13ec3fba2a1))
+* configure serena-mcp and enable Claude Code plugins ([#110](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/110)) ([c8d0f9f](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/c8d0f9f271de91179e7323b712df8bad3060be4c))
+* **deps:** update dependency @biomejs/biome to v2.5.15 ([#142](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/142)) ([5682480](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/568248002aee73f6a845953d8d1ff168a7679e6a))
+* **deps:** update dependency @biomejs/biome to v2.6.3 ([#146](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/146)) ([1dd31ad](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/1dd31ad80d49b94460482b143b2a9c0bf7a0c77c))
+* **deps:** update dependency @vitest/coverage-v8 to v5.0.5 ([#156](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/156)) ([18626a5](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/18626a5f8a582f6038c6761d5af0e6ff59e727ef))
+* **deps:** update dependency happy-dom to v21 [security] ([#151](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/151)) ([91c6b1b](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/91c6b1b3dd3b18065aef4603ff633692b7575687))
+* **deps:** update rust crate tokio to v1.53.3 [security] ([#152](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/152)) ([c5279a6](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/c5279a68f5829c452b6fd44278f646753d6399fd))
+* drop Serena MCP server definition ([#138](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/138)) ([9b934a2](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/9b934a2239e914c11d0de9a6ee15f727aafa6111))
+* initialize Serena project with blueprint memories ([#111](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/111)) ([d9097f8](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/d9097f8ce3ac7c06df6dc49ae778981c443e1cc4))
+* remove Serena project configuration files ([#113](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/113)) ([0313695](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/031369581ee054889d75c1ca29b15a81d66ca83d))
+* **scripts:** use a generic placeholder for the repo-name fallback ([#132](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/132)) ([760ea6f](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/760ea6fc15980b59bf070d619fb244e4f1b550f2))
+* standardize toolchain (Vite + TS + bun + biome) and CI ([#137](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/137)) ([28ef146](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/28ef146e78af6acff3ce03d54e547bb08f89243f))
+* upgrade blueprint docs (WIP) ([#114](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/114)) ([fc5c2eb](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/fc5c2eba21b991bd9556b8e1af6951cde16d15d2))
+
 ## [0.7.20](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v0.7.19...foundryvtt-mediasoup-webrtc-v0.7.20) (2025-07-12)
 
 
