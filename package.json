@@ -42,7 +42,7 @@
     "@biomejs/biome": "2.5.15",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.3",
-    "@vitest/coverage-v8": "5.0.3",
+    "@vitest/coverage-v8": "5.0.5",
     "fake-mediastreamtrack": "^2.2.1",
     "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
