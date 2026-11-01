@@ -4,6 +4,7 @@
  * time), instantiated by AVMaster, with its settings, menu and hooks.
  */
 
+import { version as mediasoupClientVersion } from 'mediasoup-client';
 import { expect, test } from './support/peer.js';
 
 const MODULE_ID = 'mediasoup-vtt';
@@ -45,7 +46,10 @@ test('the bundle registers MediaSoupAVClient as the core A/V client', async ({ p
   expect(report.instanceOfClientClass).toBe(true);
   expect(report.debugAliasIsClient).toBe(true);
   expect(report.notOverridden).toEqual([]);
-  expect(report.mediasoupVersion).toMatch(/^3\.24\./);
+  // The bundle is built from the installed mediasoup-client, so compare with
+  // that rather than a pinned minor; a major bump still fails here.
+  expect(report.mediasoupVersion).toBe(mediasoupClientVersion);
+  expect(report.mediasoupVersion).toMatch(/^3\./);
   expect(report.hookCalls).toEqual(expect.arrayContaining(['init', 'setup', 'ready']));
   expect(report.stylesInjected).toBe(true);
   expect(report.pageErrors).toEqual([]);
