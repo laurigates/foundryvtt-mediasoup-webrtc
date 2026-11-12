@@ -46,8 +46,10 @@ test('the bundle registers MediaSoupAVClient as the core A/V client', async ({ p
   expect(report.instanceOfClientClass).toBe(true);
   expect(report.debugAliasIsClient).toBe(true);
   expect(report.notOverridden).toEqual([]);
-  // The bundle is built from the installed mediasoup-client, so compare with
-  // that rather than a pinned minor; a major bump still fails here.
+  // The default dist/ is built from the installed mediasoup-client, so compare
+  // with that rather than a pinned minor; a major bump still fails here. An
+  // E2E_DIST_DIR build made against a different mediasoup-client fails this
+  // check too; rebuild it against the installed one.
   expect(report.mediasoupVersion).toBe(mediasoupClientVersion);
   expect(report.mediasoupVersion).toMatch(/^3\./);
   expect(report.hookCalls).toEqual(expect.arrayContaining(['init', 'setup', 'ready']));
