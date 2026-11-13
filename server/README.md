@@ -245,7 +245,7 @@ room.
 
 ### Docker
 
-`Dockerfile` is a two-stage build on Debian bookworm (`rust:1-bookworm`
+`Dockerfile` is a two-stage build on Debian bookworm (`rust:1.99.1-bookworm`
 builder, `debian:bookworm-slim` runtime, non-root user). `docker-compose.yml`
 maps the WebSocket port and the RTC range on UDP and TCP. The image `EXPOSE`s
 the defaults (3000 and 10000-10100 on UDP and TCP); its health check reads the
