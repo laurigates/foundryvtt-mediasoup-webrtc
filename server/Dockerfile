@@ -2,7 +2,10 @@
 #
 # The mediasoup worker (built from C++ by the mediasoup-sys crate) needs a
 # C++20 compiler and Python >= 3.10, so both stages use Debian bookworm.
-FROM rust:1-bookworm AS builder
+#
+# The build context is server/, so the root rust-toolchain.toml does not reach
+# this image. Keep the builder tag on the same Rust version as that file.
+FROM rust:1.99.1-bookworm AS builder
 
 # System dependencies needed by the mediasoup-sys build script. It pip-installs
 # `invoke`, `meson` and `ninja` into its own OUT_DIR with `pip install --target`.
