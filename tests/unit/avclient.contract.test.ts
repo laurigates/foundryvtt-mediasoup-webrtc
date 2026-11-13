@@ -5,6 +5,7 @@
  * page (see V14_AVCLIENT_ABSTRACT_MEMBERS), not from MediaSoupAVClient.
  */
 
+import { version as mediasoupClientVersion } from 'mediasoup-client';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MediaSoupAVClient } from '../../src/client/MediaSoupAVClient';
 import { FakeSfu } from './helpers/fake-ws';
@@ -93,7 +94,10 @@ describe('module entry (src/mediasoup-vtt.ts)', () => {
     const master = new AVMaster(new AVSettings());
     env.game.webrtc = master;
     expect((window as any).MediaSoupVTT_Client).toBe(master.client);
-    expect((window as any).mediasoupClient?.version).toMatch(/^3\.24\./);
+    // Compare with the installed mediasoup-client rather than a pinned minor,
+    // so in-range bumps pass; a major bump still fails here.
+    expect((window as any).mediasoupClient?.version).toBe(mediasoupClientVersion);
+    expect(mediasoupClientVersion).toMatch(/^3\./);
     env.game.webrtc = undefined;
   });
 

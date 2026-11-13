@@ -5,15 +5,18 @@
 //! No media flows here (there is no DTLS/ICE peer); these tests pin the
 //! signaling state machine: auth, room routing, transports, produce/consume,
 //! late-join `getProducers`, `closeProducer` -> `producerClosed`, error
-//! replies, eviction and keepalive.
+//! replies, eviction, keepalive and the resource limits (#118).
 
 use futures_util::{SinkExt, StreamExt};
-use mediasoup_server::config::{ListenIp, RouterConfig, WebRtcConfig, WorkerConfig};
+use mediasoup_server::config::{LimitsConfig, ListenIp, RouterConfig, WebRtcConfig, WorkerConfig};
+use mediasoup_server::room::MAX_TRANSPORTS_PER_PEER;
+use mediasoup_server::server::MAX_SIGNALING_MESSAGE_SIZE;
 use mediasoup_server::{Config, MediaSoupServer};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -49,19 +52,29 @@ fn test_config() -> Config {
         },
         auth_token: Some(TOKEN.to_string()),
         tls: None,
+        limits: LimitsConfig::default(),
     }
 }
 
 /// Start a server on an ephemeral loopback port and return its address.
 async fn start_server_with(keepalive: Option<(Duration, u32)>) -> SocketAddr {
-    let config = test_config();
+    let server = new_server(test_config()).await;
+    let server = match keepalive {
+        Some((interval, max_missed)) => server.with_keepalive(interval, max_missed),
+        None => server,
+    };
+    serve(server).await
+}
+
+async fn new_server(config: Config) -> MediaSoupServer {
     config.validate().expect("test config is valid");
-    let mut server = MediaSoupServer::new(config)
+    MediaSoupServer::new(config)
         .await
-        .expect("failed to create server (is the mediasoup worker built?)");
-    if let Some((interval, max_missed)) = keepalive {
-        server = server.with_keepalive(interval, max_missed);
-    }
+        .expect("failed to create server (is the mediasoup worker built?)")
+}
+
+/// Run `server` on an ephemeral loopback port and return its address.
+async fn serve(server: MediaSoupServer) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
@@ -89,16 +102,41 @@ struct Client {
 
 impl Client {
     async fn connect(addr: SocketAddr, name: &'static str) -> Self {
+        Self::try_connect(addr, name)
+            .await
+            .unwrap_or_else(|e| panic!("{name}: connect failed: {e}"))
+    }
+
+    /// Connect, returning the handshake error instead of panicking.
+    async fn try_connect(addr: SocketAddr, name: &'static str) -> Result<Self, String> {
         let (ws, _) = tokio::time::timeout(STEP_TIMEOUT, connect_async(format!("ws://{addr}")))
             .await
             .expect("connect timed out")
-            .expect("connect failed");
-        Self {
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
             name,
             ws,
             next_id: 0,
             notifications: VecDeque::new(),
-        }
+        })
+    }
+
+    /// Wait until the server ends the connection (close frame, error or EOF).
+    async fn expect_closed(&mut self) {
+        let ended = tokio::time::timeout(STEP_TIMEOUT, async {
+            loop {
+                match self.ws.next().await {
+                    None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+        assert!(
+            ended.is_ok(),
+            "{}: server did not close the connection",
+            self.name
+        );
     }
 
     /// Connect and authenticate into `room` as `user_id`.
@@ -745,4 +783,118 @@ async fn keepalive_drops_unresponsive_peers() {
     })
     .await;
     assert!(ended.is_ok(), "unresponsive peer was not dropped");
+}
+
+/// An inbound message over `MAX_SIGNALING_MESSAGE_SIZE` closes the connection,
+/// before and after authentication; one well under it is handled normally.
+#[tokio::test]
+async fn oversized_frame_closes_connection() {
+    let addr = start_server().await;
+    let oversized = "x".repeat(MAX_SIGNALING_MESSAGE_SIZE + 1);
+
+    // Before authentication.
+    let mut early = Client::connect(addr, "early").await;
+    // The server may reset the socket mid-write; only the outcome matters.
+    let _ = early.ws.send(Message::Text(oversized.clone().into())).await;
+    early.expect_closed().await;
+
+    // After authentication: a 64 KiB frame is still parsed (and rejected as
+    // invalid JSON with a reply), an oversized one ends the connection.
+    let mut client = Client::join(addr, "big", "user-big", ROOM).await;
+    client.send_text("y".repeat(64 * 1024)).await;
+    let reply = client.recv_json().await;
+    assert!(
+        reply["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("invalid JSON")),
+        "{reply}"
+    );
+    let _ = client.ws.send(Message::Text(oversized.into())).await;
+    client.expect_closed().await;
+
+    // The server keeps serving others.
+    let mut other = Client::join(addr, "other", "user-other", ROOM).await;
+    assert_eq!(
+        other.ok("getProducers", json!({})).await,
+        json!({ "producers": [] })
+    );
+}
+
+/// `max_connections_per_ip` refuses extra connections from one address before
+/// the WebSocket handshake, and a closed connection frees its slot.
+#[tokio::test]
+async fn per_ip_connection_cap_rejects_extra_connections() {
+    let mut config = test_config();
+    config.limits = LimitsConfig {
+        max_connections: 0,
+        max_connections_per_ip: 2,
+    };
+    let addr = serve(new_server(config).await).await;
+
+    let mut first = Client::join(addr, "first", "user-1", ROOM).await;
+    // A connection that has not authenticated yet counts too.
+    let _second = Client::connect(addr, "second").await;
+    let refused = Client::try_connect(addr, "third").await;
+    assert!(
+        refused.is_err(),
+        "third connection from one IP was accepted"
+    );
+
+    // Closing one frees a slot once the server has noticed.
+    first.ws.close(None).await.expect("close");
+    let deadline = tokio::time::Instant::now() + STEP_TIMEOUT;
+    let mut again = loop {
+        if let Ok(client) = Client::try_connect(addr, "again").await {
+            break client;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "slot was not released after a connection closed"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    again
+        .ok(
+            "authenticate",
+            json!({ "token": TOKEN, "userId": "user-3", "roomId": ROOM }),
+        )
+        .await;
+}
+
+/// A connection that never completes the WebSocket handshake is dropped
+/// after the handshake timeout.
+#[tokio::test]
+async fn stalled_handshake_is_dropped() {
+    let server = new_server(test_config())
+        .await
+        .with_handshake_timeout(Duration::from_millis(200));
+    let addr = serve(server).await;
+
+    let mut tcp = TcpStream::connect(addr).await.expect("tcp connect");
+    let mut buf = [0u8; 64];
+    let read = tokio::time::timeout(STEP_TIMEOUT, tcp.read(&mut buf))
+        .await
+        .expect("server did not drop the stalled connection");
+    assert!(matches!(read, Ok(0) | Err(_)), "expected EOF, got {read:?}");
+}
+
+/// A peer cannot create more than `MAX_TRANSPORTS_PER_PEER` transports; the
+/// refused request gets an error reply and the connection stays usable.
+#[tokio::test]
+async fn per_peer_transport_limit_is_enforced() {
+    let addr = start_server().await;
+    let mut client = Client::join(addr, "greedy", "user-greedy", ROOM).await;
+    for _ in 0..MAX_TRANSPORTS_PER_PEER {
+        client
+            .ok("createWebRtcTransport", json!({ "producing": true }))
+            .await;
+    }
+    let e = client
+        .err("createWebRtcTransport", json!({ "producing": true }))
+        .await;
+    assert!(e.contains("Too many transports"), "{e}");
+    assert_eq!(
+        client.ok("getProducers", json!({})).await,
+        json!({ "producers": [] })
+    );
 }

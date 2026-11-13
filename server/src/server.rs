@@ -1,6 +1,9 @@
 use crate::config::{Config, TlsConfig};
 use crate::error::{MediaSoupError, Result};
-use crate::room::{CloseRequest, Peer, Room, TransportListenOptions, media_kind_str};
+use crate::limits::ConnectionLimiter;
+use crate::room::{
+    CloseRequest, PEER_QUEUE_CAPACITY, Peer, Room, TransportListenOptions, media_kind_str,
+};
 use crate::signaling::*;
 use dashmap::DashMap;
 use futures_util::stream::SplitStream;
@@ -16,14 +19,14 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{Instant, MissedTickBehavior};
+use tokio::time::{Instant, MissedTickBehavior, timeout_at};
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
+use tokio_tungstenite::{WebSocketStream, accept_async_with_config, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -36,6 +39,23 @@ pub const DEFAULT_MAX_MISSED_PONGS: u32 = 3;
 
 /// How long a new connection may take to send its `authenticate` frame.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default for how long the TLS and WebSocket handshakes of a new connection
+/// may take together, before `AUTH_TIMEOUT` starts.
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Largest inbound WebSocket message (and frame) accepted. The largest
+/// legitimate requests carry the client's RTP capabilities (`consume`) or a
+/// simulcast producer's RTP parameters (`produce`), a few KiB to a few tens of
+/// KiB of JSON. A bigger message closes the connection (#118).
+pub const MAX_SIGNALING_MESSAGE_SIZE: usize = 256 * 1024;
+
+/// WebSocket settings for accepted connections: inbound size limits.
+fn websocket_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_SIGNALING_MESSAGE_SIZE))
+        .max_frame_size(Some(MAX_SIGNALING_MESSAGE_SIZE))
+}
 
 /// How long to wait for the outgoing task to flush a close frame.
 const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
@@ -173,12 +193,15 @@ pub struct MediaSoupServer {
     rooms: Arc<DashMap<String, Arc<Room>>>,
     ping_interval: Duration,
     max_missed_pongs: u32,
+    handshake_timeout: Duration,
+    connection_limiter: Arc<ConnectionLimiter>,
 }
 
 impl MediaSoupServer {
     /// Create a new MediaSoup server
     pub async fn new(config: Config) -> Result<Self> {
         let worker_manager = CustomWorkerManager::new(&config).await?;
+        let connection_limiter = ConnectionLimiter::new(&config.limits);
 
         Ok(Self {
             config,
@@ -186,6 +209,8 @@ impl MediaSoupServer {
             rooms: Arc::new(DashMap::new()),
             ping_interval: DEFAULT_PING_INTERVAL,
             max_missed_pongs: DEFAULT_MAX_MISSED_PONGS,
+            handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
+            connection_limiter,
         })
     }
 
@@ -195,6 +220,13 @@ impl MediaSoupServer {
     pub fn with_keepalive(mut self, interval: Duration, max_missed: u32) -> Self {
         self.ping_interval = interval;
         self.max_missed_pongs = max_missed.max(1);
+        self
+    }
+
+    /// Override how long the TLS and WebSocket handshakes may take together
+    /// (default [`DEFAULT_HANDSHAKE_TIMEOUT`]).
+    pub fn with_handshake_timeout(mut self, timeout: Duration) -> Self {
+        self.handshake_timeout = timeout;
         self
     }
 
@@ -241,6 +273,11 @@ impl MediaSoupServer {
             .map(|a| a.to_string())
             .unwrap_or_else(|_| self.config.listen_addr.to_string());
         info!("WebSocket server listening on {}", local_addr);
+        let limits = &self.config.limits;
+        info!(
+            "Connection limits: {} total, {} per IP (0 = unlimited)",
+            limits.max_connections, limits.max_connections_per_ip
+        );
 
         let server = Arc::new(self);
 
@@ -254,18 +291,44 @@ impl MediaSoupServer {
                     continue;
                 }
             };
+            // Enforce the connection caps before spending anything on the
+            // handshakes. Dropping the stream closes it.
+            let guard = match server.connection_limiter.try_acquire(addr.ip()) {
+                Ok(guard) => guard,
+                Err(limit) => {
+                    warn!("Refusing connection from {}: {}", addr, limit);
+                    continue;
+                }
+            };
             let server_clone = server.clone();
             let acceptor = tls_acceptor.clone();
             tokio::spawn(async move {
+                // Held for the connection's lifetime; frees the slot on drop.
+                let _guard = guard;
+                let handshake_deadline = Instant::now() + server_clone.handshake_timeout;
                 let result = match acceptor {
-                    Some(acceptor) => match acceptor.accept(stream).await {
-                        Ok(tls_stream) => server_clone.handle_connection(tls_stream, addr).await,
-                        Err(e) => {
-                            error!("TLS handshake failed from {}: {}", addr, e);
-                            return;
+                    Some(acceptor) => {
+                        match timeout_at(handshake_deadline, acceptor.accept(stream)).await {
+                            Ok(Ok(tls_stream)) => {
+                                server_clone
+                                    .handle_connection(tls_stream, addr, handshake_deadline)
+                                    .await
+                            }
+                            Ok(Err(e)) => {
+                                error!("TLS handshake failed from {}: {}", addr, e);
+                                return;
+                            }
+                            Err(_) => {
+                                warn!("TLS handshake timed out for {}", addr);
+                                return;
+                            }
                         }
-                    },
-                    None => server_clone.handle_connection(stream, addr).await,
+                    }
+                    None => {
+                        server_clone
+                            .handle_connection(stream, addr, handshake_deadline)
+                            .await
+                    }
                 };
                 if let Err(e) = result {
                     error!("Error handling connection from {}: {}", addr, e);
@@ -274,11 +337,30 @@ impl MediaSoupServer {
         }
     }
 
-    /// Handle a new WebSocket connection (over plain TCP or TLS).
-    async fn handle_connection<S: IoStream>(&self, stream: S, addr: SocketAddr) -> Result<()> {
+    /// Handle a new WebSocket connection (over plain TCP or TLS). The
+    /// WebSocket handshake must finish by `handshake_deadline`.
+    async fn handle_connection<S: IoStream>(
+        &self,
+        stream: S,
+        addr: SocketAddr,
+        handshake_deadline: Instant,
+    ) -> Result<()> {
         info!("New connection from {}", addr);
 
-        let ws_stream = accept_async(stream).await?;
+        let ws_stream = match timeout_at(
+            handshake_deadline,
+            accept_async_with_config(stream, Some(websocket_config())),
+        )
+        .await
+        {
+            Ok(ws_stream) => ws_stream?,
+            Err(_) => {
+                warn!("WebSocket handshake timed out for {}", addr);
+                return Err(MediaSoupError::InvalidRequest(
+                    "WebSocket handshake timed out".to_string(),
+                ));
+            }
+        };
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
         // Authenticate before allocating any room/peer resources. On failure we
@@ -309,8 +391,10 @@ impl MediaSoupServer {
             request_id,
         } = auth;
 
-        // Create a channel for sending messages to this peer
-        let (message_sender, mut message_receiver) = mpsc::unbounded_channel::<OutgoingMessage>();
+        // Create a channel for sending messages to this peer. It is bounded:
+        // a peer that lets it fill up is disconnected (`Peer::send_message`).
+        let (message_sender, mut message_receiver) =
+            mpsc::channel::<OutgoingMessage>(PEER_QUEUE_CAPACITY);
 
         // Identity is the client-supplied FoundryVTT user id (see `authenticate`).
         let peer = Arc::new(Peer::with_session(user_id, session_id, message_sender));

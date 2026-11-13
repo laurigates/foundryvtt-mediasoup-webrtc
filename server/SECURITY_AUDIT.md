@@ -3,7 +3,7 @@
 What the server does and does not protect against, and the state of its
 dependency advisories. Not a claim of hardening beyond what is listed (#118).
 
-Last updated: 2026-09-30.
+Last updated: 2026-10-27.
 
 ## Application security
 
@@ -47,12 +47,42 @@ the token check in the `authenticate` handshake (`verify_token` in
   WebRTC SFU. The SFU itself sees decrypted media; there is no end-to-end
   encryption.
 
+### Resource limits
+
+In place (see the README's "Resource limits" for the user-facing view):
+
+- Connection caps, total (`MEDIASOUP_MAX_CONNECTIONS`, default 500) and per
+  source IP (`MEDIASOUP_MAX_CONNECTIONS_PER_IP`, default 32), checked right
+  after the TCP accept, before any TLS or WebSocket handshake. The slot is
+  released when the connection task ends (an RAII guard in `src/limits.rs`).
+- A 10-second deadline on the TLS plus WebSocket handshake, then the existing
+  30 seconds for `authenticate`. A connection cannot sit in the pre-auth
+  phase indefinitely.
+- Inbound WebSocket messages and frames are capped at 256 KiB
+  (`MAX_SIGNALING_MESSAGE_SIZE` in `src/server.rs`; the library default was
+  64 MiB per message). A bigger one closes the connection.
+- Per peer: at most 8 transports, 16 producers and 512 consumers
+  (`MAX_*_PER_PEER` in `src/room.rs`). Over the limit, the request fails with
+  an `Invalid request` error; the connection stays open.
+- Each peer's outgoing queue is bounded (1024 messages). A peer that stops
+  reading its socket is disconnected when the queue fills, instead of the
+  server buffering for it without bound.
+
 ### Known gaps
 
-- **Resource limits:** no per-IP connection cap, no per-peer limit on
-  transports, producers or consumers, no size limit on signaling frames beyond
-  the WebSocket library's defaults.
-- **Per-user identity:** see above.
+- **Resource limits, remaining:**
+  - The per-IP cap counts addresses, not users. Behind a reverse proxy all
+    clients share the proxy's address (raise the cap or set it to 0 there),
+    and an attacker with many addresses (e.g. an IPv6 range) is held only by
+    the total cap. Per-user limits need per-user identity (#130).
+  - No rate limit on signaling requests. A connected peer can still send
+    requests as fast as the server answers them; each is bounded by the
+    per-peer object limits above.
+  - No cap on rooms or on peers per room beyond the connection caps; with one
+    shared token, any token holder can create rooms (one router each).
+  - The RTC port range is shared: 8 transports per peer times the connection
+    caps can exceed it, after which transport creation fails for everyone.
+- **Per-user identity:** see above; per-user credentials are tracked in #130.
 
 ## Dependencies
 

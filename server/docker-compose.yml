@@ -38,14 +38,20 @@ services:
       # instead of using the nginx profile below.
       # - MEDIASOUP_TLS_CERT=/app/tls/fullchain.pem
       # - MEDIASOUP_TLS_KEY=/app/tls/privkey.pem
+      # Connection caps (0 = unlimited). Docker usually preserves client
+      # addresses; behind a reverse proxy every client has the proxy's
+      # address, so raise the per-IP cap or set it to 0 there.
+      # - MEDIASOUP_MAX_CONNECTIONS=500
+      # - MEDIASOUP_MAX_CONNECTIONS_PER_IP=32
       # Server log filter (default info).
       # - RUST_LOG=mediasoup_server=debug
     restart: unless-stopped
     networks:
       - mediasoup-net
     healthcheck:
-      # The WebSocket port accepts TCP connections once the server is up.
-      test: ["CMD", "nc", "-z", "localhost", "3000"]
+      # The WebSocket port accepts TCP connections once the server is up. The
+      # script reads the port from MEDIASOUP_LISTEN_ADDR.
+      test: ["CMD", "/usr/local/bin/health-check.sh"]
       interval: 30s
       timeout: 10s
       start_period: 5s

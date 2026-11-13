@@ -127,6 +127,10 @@ just check           # typecheck + build + lint + unit tests (the local gate)
 just server-check    # cargo fmt --check, clippy -D warnings, cargo test
 ```
 
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the rules of the road and
+[`docs/client-architecture.md`](docs/client-architecture.md) for the
+client's AVClient methods and transport events.
+
 ## Tests
 
 | Tier | Command | CI | Needs |

@@ -11,6 +11,31 @@ breaks: a green run with no media flowing is not possible.
 | SFU e2e | `tests/e2e/sfu/` (Playwright, Chromium) | `just test-e2e` / `bun run test:e2e`; CI `e2e.yml` | The **real bundle** loads and registers on a v14-shaped Foundry, and **real audio and video flow** browser -> SFU -> browser | a built `dist/` and SFU release binary |
 | Foundry e2e | `tests/e2e/foundry/` (separate `playwright.foundry.config.ts`) | `bunx playwright test -c playwright.foundry.config.ts` (see `tests/e2e/foundry/README.md`); CI `foundry-e2e.yml`, only when Foundry secrets exist | The module inside a real Foundry v14 server. **Not run yet**: no result from this tier exists so far | a Foundry license |
 
+## Unit coverage
+
+```sh
+bun run test:coverage    # vitest run --coverage (V8 provider)
+```
+
+CI (`ci.yml`, job "Tests (Vitest)") runs this command in place of
+`bun run test` and uploads `coverage/` as the `coverage` artifact.
+Coverage is measured over `src/**` (minus `*.d.ts`). The report goes to
+`coverage/` (git-ignored): a text table on stdout, `coverage/lcov.info` +
+`coverage/lcov-report/index.html`, and `coverage/coverage-summary.json`.
+
+The thresholds in `vitest.config.ts` sit about two points below the measured
+numbers, so the run fails when coverage drops. They are a ratchet, so raise
+them when new tests push coverage up, and never lower them to make a run pass:
+
+| Scope | Statements | Branches | Functions | Lines |
+|-------|-----------|----------|-----------|-------|
+| global (`src/**`) | 82 | 71 | 85 | 86 |
+| `src/client/MediaSoupAVClient.ts` | 83 | 73 | 85 | 87 |
+| `src/ui/**` | 92 | 74 | 92 | 93 |
+
+Coverage counts only lines that the unit doubles reach. It says nothing about
+real media flow, which only the e2e tiers prove.
+
 ## SFU e2e tier (`tests/e2e/sfu/`)
 
 ### What runs

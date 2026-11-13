@@ -219,7 +219,15 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
           ),
         );
       } else {
-        notify('error', errorMessage(error));
+        // The Error text stays English for the log; the user sees the localized one.
+        notify(
+          'error',
+          formatOr(
+            'MEDIASOUPVTT.Notifications.InvalidServerUrl',
+            'Invalid MediaSoup server URL "{url}". Use a ws:// or wss:// address.',
+            { url: serverUrl },
+          ),
+        );
       }
       return false;
     }

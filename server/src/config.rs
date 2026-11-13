@@ -30,6 +30,37 @@ pub struct Config {
     /// directly; when `None`, it serves plain `ws://` and expects TLS to be
     /// terminated by a reverse proxy.
     pub tls: Option<TlsConfig>,
+
+    /// Connection caps enforced before the WebSocket handshake (#118).
+    #[serde(default)]
+    pub limits: LimitsConfig,
+}
+
+/// Default for `MEDIASOUP_MAX_CONNECTIONS`.
+pub const DEFAULT_MAX_CONNECTIONS: usize = 500;
+
+/// Default for `MEDIASOUP_MAX_CONNECTIONS_PER_IP`.
+pub const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 32;
+
+/// Caps on concurrent WebSocket connections. `0` means unlimited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LimitsConfig {
+    /// Open connections in total (`MEDIASOUP_MAX_CONNECTIONS`).
+    pub max_connections: usize,
+
+    /// Open connections from one source IP (`MEDIASOUP_MAX_CONNECTIONS_PER_IP`).
+    /// Behind a reverse proxy every client has the proxy's address, so raise
+    /// it or set it to 0 there.
+    pub max_connections_per_ip: usize,
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            max_connections_per_ip: DEFAULT_MAX_CONNECTIONS_PER_IP,
+        }
+    }
 }
 
 /// Paths to the PEM-encoded certificate chain and private key for native TLS.
@@ -182,6 +213,14 @@ impl Config {
                 }),
                 _ => None,
             },
+
+            limits: LimitsConfig {
+                max_connections: env_usize("MEDIASOUP_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS),
+                max_connections_per_ip: env_usize(
+                    "MEDIASOUP_MAX_CONNECTIONS_PER_IP",
+                    DEFAULT_MAX_CONNECTIONS_PER_IP,
+                ),
+            },
         };
 
         Ok(config)
@@ -305,6 +344,22 @@ fn env_flag(name: &str, default: bool) -> bool {
     parse_flag(non_empty_env(name).as_deref(), default)
 }
 
+/// Read a non-negative integer environment variable, falling back to
+/// `default` when unset, empty or unparsable (the latter with a warning).
+fn env_usize(name: &str, default: usize) -> usize {
+    parse_usize(name, non_empty_env(name).as_deref(), default)
+}
+
+fn parse_usize(name: &str, value: Option<&str>, default: usize) -> usize {
+    match value {
+        None => default,
+        Some(v) => v.parse().unwrap_or_else(|_| {
+            warn!("{name}={v:?} is not a non-negative integer; using {default}");
+            default
+        }),
+    }
+}
+
 fn parse_flag(value: Option<&str>, default: bool) -> bool {
     match value.map(str::to_ascii_lowercase).as_deref() {
         Some("1" | "true" | "yes" | "on") => true,
@@ -343,6 +398,7 @@ mod tests {
             },
             auth_token: None,
             tls: None,
+            limits: LimitsConfig::default(),
         }
     }
 
@@ -418,5 +474,14 @@ mod tests {
         assert!(parse_flag(None, true));
         assert!(!parse_flag(None, false));
         assert!(parse_flag(Some("garbage"), true));
+    }
+
+    #[test]
+    fn parse_usize_falls_back_to_the_default() {
+        assert_eq!(parse_usize("X", Some("0"), 7), 0, "0 is kept (unlimited)");
+        assert_eq!(parse_usize("X", Some("64"), 7), 64);
+        assert_eq!(parse_usize("X", None, 7), 7);
+        assert_eq!(parse_usize("X", Some("-1"), 7), 7);
+        assert_eq!(parse_usize("X", Some("lots"), 7), 7);
     }
 }
