@@ -19,6 +19,7 @@ on:
     paths:
       - "src/**"
       - "server/**"
+      - "rust-toolchain.toml"
       - "lang/**"
       - "styles/**"
       - "templates/**"
@@ -34,6 +35,7 @@ on:
     paths:
       - "src/**"
       - "server/**"
+      - "rust-toolchain.toml"
       - "lang/**"
       - "styles/**"
       - "templates/**"
