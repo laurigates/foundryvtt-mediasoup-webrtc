@@ -32,9 +32,8 @@ jobs:
       - uses: actions/checkout@v7
 
       # The SFU, built the same way as in server-ci.yml (mediasoup-sys builds
-      # the C++ worker with its own meson/ninja).
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # the C++ worker with its own meson/ninja). rustup installs the toolchain
+      # pinned in rust-toolchain.toml on first use.
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
