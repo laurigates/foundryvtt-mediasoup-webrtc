@@ -92,9 +92,10 @@ cp -r dist/. /path/to/foundrydata/Data/modules/mediasoup-vtt/
    the MediaSoupVTT section, or use its **Configure MediaSoup Server** menu.
 3. Open **Configure Audio/Video** and set the conference mode to Audio/Video,
    Audio Only or Video Only. MediaSoup is used automatically; there is no
-   separate mode to pick. The **Server** tab's Relay Server setting has no
-   effect with this module; leave it at the default
-   ([#170](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/170)).
+   separate mode to pick. On the **Server** tab, **Relay Server** set to
+   *Custom relay server* (with URL, username and password) gives clients a
+   TURN relay, such as coturn on `turns:<host>:443`, for networks that block
+   the SFU's RTC ports. *Provided by signaling server* adds no relay.
 4. Each user chooses their microphone, camera, voice mode and push-to-talk
    key in **Configure Audio/Video** as usual.
 
