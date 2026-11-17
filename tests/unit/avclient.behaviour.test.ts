@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { relayIceServers } from '../../src/client/MediaSoupAVClient';
 import { FakeSfu } from './helpers/fake-ws';
 import {
   AVSettings,
@@ -68,6 +69,33 @@ async function remotePeer() {
   await core.connect();
   return core;
 }
+
+describe("core's Relay Server setting", () => {
+  const custom = { type: 'custom', url: 'turns:turn.example:443', username: 'u', password: 'p' };
+  const relay = { urls: 'turns:turn.example:443', username: 'u', credential: 'p' };
+
+  it('maps only a complete custom relay to ICE servers', () => {
+    expect(relayIceServers(custom)).toEqual([relay]);
+    expect(relayIceServers({ ...custom, url: '  turns:turn.example:443 ' })).toEqual([relay]);
+    expect(relayIceServers({ ...custom, type: 'server' })).toEqual([]);
+    expect(relayIceServers({ ...custom, url: '' })).toEqual([]);
+    expect(relayIceServers({ ...custom, username: '' })).toEqual([]);
+    expect(relayIceServers({ ...custom, password: '' })).toEqual([]);
+    expect(relayIceServers(undefined)).toEqual([]);
+  });
+
+  it('a custom relay reaches both transports; changing it reconnects with the new one', async () => {
+    const { master, client, handlers, settings } = av();
+    settings.world.turn = custom;
+    expect(await master.connect()).toBe(true);
+    expect(handlers.map((h) => h.iceServers)).toEqual([[relay], [relay]]);
+
+    settings.world.turn = { ...custom, type: 'server' };
+    expect(await master.connect()).toBe(true);
+    expect(client.transport.iceServers).toEqual([]);
+    expect(handlers.slice(2).map((h) => h.iceServers ?? [])).toEqual([[], []]);
+  });
+});
 
 describe('capture and send', () => {
   it('captures the AVSettings devices and sends both tracks (push-to-talk starts the mic paused)', async () => {

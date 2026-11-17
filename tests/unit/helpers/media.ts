@@ -99,6 +99,8 @@ export function installMediaFakes(): FakeMediaDevices {
 export interface FakeHandlerRecord {
   direction: 'send' | 'recv';
   handler: { setConnectionState(state: string): void };
+  /** The ICE servers mediasoup-client gave the handler's RTCPeerConnection. */
+  iceServers: RTCIceServer[] | undefined;
 }
 
 /**
@@ -118,7 +120,11 @@ export function fakeDeviceFactory(): {
     ...base,
     factory: (options: any) => {
       const handler = base.factory(options);
-      handlers.push({ direction: options.direction, handler: handler as any });
+      handlers.push({
+        direction: options.direction,
+        handler: handler as any,
+        iceServers: options.iceServers,
+      });
       return handler;
     },
   };
