@@ -1,0 +1,56 @@
+name: Container
+
+# Publishes the Rust SFU (server/) to ghcr.io/laurigates/mediasoup-vtt-server,
+# build-once / promote per the laurigates/.github convention:
+#   release-please PR → build and push :next-<version>
+#   release tag       → promote that manifest to <version>, <major>.<minor>, <major>
+# The release job falls back to a full rebuild when no pre-release image exists.
+#
+# The image is versioned with the module: the server and client share one
+# signaling contract and are released together.
+#
+# server-ci.yml already builds the image without pushing on every PR that
+# touches server/, so there is no separate smoke job here.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags: ['foundryvtt-mediasoup-webrtc-v*.*.*']
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+# Explicit grant so the reusable workflows get the token scopes they declare
+# even when the repo's default workflow permissions are read-only.
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  actions: read
+
+jobs:
+  build:
+    # Only release-please PRs carry the bumped version that names the
+    # pre-release image. Same-repo check: fork PRs get a read-only token.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'release-please--branches--main'
+    uses: laurigates/.github/.github/workflows/reusable-container-build.yml@main
+    with:
+      image-name: laurigates/mediasoup-vtt-server
+      context: server
+      dockerfile: server/Dockerfile
+      cache-scope: mediasoup-vtt-server
+
+  release:
+    if: github.event_name == 'push'
+    uses: laurigates/.github/.github/workflows/reusable-container-release.yml@main
+    with:
+      image-name: laurigates/mediasoup-vtt-server
+      tag-prefix: foundryvtt-mediasoup-webrtc-v
+      context: server
+      dockerfile: server/Dockerfile
+      cache-scope: mediasoup-vtt-server
