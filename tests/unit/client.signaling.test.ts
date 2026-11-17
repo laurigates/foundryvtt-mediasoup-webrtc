@@ -52,6 +52,23 @@ describe('signaling payloads', () => {
     core.disconnect();
   });
 
+  it('gives a configured TURN relay to both transports, and none by default', async () => {
+    const relay = { urls: 'turns:turn.example:443', username: 'u', credential: 'p' };
+    const withRelay = createCore({ sfu, iceServers: [relay] });
+    await withRelay.core.connect();
+    expect(withRelay.handlers.map((h) => [h.direction, h.iceServers])).toEqual([
+      ['send', [relay]],
+      ['recv', [relay]],
+    ]);
+    withRelay.core.disconnect();
+
+    const plain = createCore({ sfu });
+    await plain.core.connect();
+    expect(plain.handlers).toHaveLength(2);
+    for (const h of plain.handlers) expect(h.iceServers ?? []).toEqual([]);
+    plain.core.disconnect();
+  });
+
   it('joins in contract order: auth, router caps, send transport, recv transport, getProducers', async () => {
     const { core } = createCore({ sfu });
     await core.connect();

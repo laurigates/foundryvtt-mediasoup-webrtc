@@ -154,6 +154,11 @@ export interface MediaSoupVTTClientOptions {
   /** Room to join (the Foundry world id). Sent in `authenticate`. */
   roomId?: string;
   /**
+   * ICE servers (a TURN relay) given to both transports, for clients that
+   * cannot reach the SFU's own candidates. Empty means none.
+   */
+  iceServers?: RTCIceServer[];
+  /**
    * Identifies this page's connections to the server (defaults to a random
    * id per instance). Sent in `authenticate`, so a reconnect can tell the
    * server which older connection is its own.
@@ -174,7 +179,7 @@ export interface MediaSoupVTTClientOptions {
 /** Connection parameters that can change between connects. */
 export type ConnectionParameters = Pick<
   MediaSoupVTTClientOptions,
-  'serverUrl' | 'authToken' | 'userId' | 'roomId'
+  'serverUrl' | 'authToken' | 'userId' | 'roomId' | 'iceServers'
 >;
 
 export interface ProduceOptions {
@@ -287,6 +292,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
   authToken: string;
   userId: string;
   roomId: string | undefined;
+  iceServers: RTCIceServer[];
   /** Sent in `authenticate`; stable for the life of this instance. */
   readonly sessionId: string;
 
@@ -362,6 +368,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     this.authToken = options.authToken ?? '';
     this.userId = options.userId ?? '';
     this.roomId = options.roomId;
+    this.iceServers = options.iceServers ?? [];
     this.sessionId = options.sessionId ?? randomSessionId();
     this.#WebSocketImpl = options.WebSocketImpl;
     this.#deviceFactory = options.deviceFactory ?? (() => new Device());
@@ -411,6 +418,7 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
     if (params.authToken !== undefined) this.authToken = params.authToken;
     if (params.userId !== undefined) this.userId = params.userId;
     if ('roomId' in params) this.roomId = params.roomId;
+    if (params.iceServers !== undefined) this.iceServers = params.iceServers;
   }
 
   #setState(state: ClientState, reason?: string): void {
@@ -913,8 +921,14 @@ export class MediaSoupVTTClient extends TypedEmitter<MediaSoupVTTClientEvents> {
       consuming: direction === 'recv',
     });
     const device = this.#requireDevice();
+    // A relay lets a client on a network that blocks the SFU's RTC ports
+    // (e.g. outbound 443 only) reach it through TURN.
+    const options: TransportOptions =
+      this.iceServers.length > 0 ? { ...info, iceServers: this.iceServers } : info;
     const transport =
-      direction === 'send' ? device.createSendTransport(info) : device.createRecvTransport(info);
+      direction === 'send'
+        ? device.createSendTransport(options)
+        : device.createRecvTransport(options);
 
     transport.on('connect', ({ dtlsParameters }, callback, errback) => {
       this.request(SIG_MSG_TYPES.CONNECT_TRANSPORT, { transportId: transport.id, dtlsParameters })

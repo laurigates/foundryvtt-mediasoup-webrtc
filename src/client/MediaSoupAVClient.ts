@@ -52,6 +52,23 @@ function errorMessage(error: unknown): string {
 }
 
 /**
+ * The ICE servers for core's Relay Server setting (`rtcWorldSettings.turn`).
+ * Only "Custom relay server" with a URL, username and password yields a
+ * relay; WebRTC requires TURN credentials. "Provided by signaling server"
+ * yields none: the SFU's own candidates are used as before.
+ */
+export function relayIceServers(turn: unknown): RTCIceServer[] {
+  if (!turn || typeof turn !== 'object') return [];
+  const { type, url, username, password } = turn as Record<string, unknown>;
+  if (type !== 'custom') return [];
+  if (typeof url !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
+    return [];
+  }
+  if (!url.trim() || !username || !password) return [];
+  return [{ urls: url.trim(), username, credential: password }];
+}
+
+/**
  * Collect the dotted key paths of a (possibly nested) changes object, the way
  * `foundry.utils.flattenObject` would. Kept local so it runs without Foundry.
  */
@@ -232,13 +249,20 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
       return false;
     }
 
-    const params = { serverUrl, authToken, userId: this.#userId, roomId: game.world?.id };
+    const params = {
+      serverUrl,
+      authToken,
+      userId: this.#userId,
+      roomId: game.world?.id,
+      iceServers: relayIceServers(this.settings.get('world', 'turn')),
+    };
     const transport = this.transport;
     const paramsChanged =
       transport.serverUrl !== params.serverUrl ||
       transport.authToken !== params.authToken ||
       transport.userId !== params.userId ||
-      transport.roomId !== params.roomId;
+      transport.roomId !== params.roomId ||
+      JSON.stringify(transport.iceServers) !== JSON.stringify(params.iceServers);
     if (paramsChanged && (transport.isConnected || transport.isConnecting)) {
       // Do not rely on AVMaster disconnecting first: a live connection to the
       // old server, token or room would otherwise be reused as is.
