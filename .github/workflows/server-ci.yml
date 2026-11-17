@@ -29,10 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # rustup installs the toolchain and components pinned in
+      # rust-toolchain.toml on first use.
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
