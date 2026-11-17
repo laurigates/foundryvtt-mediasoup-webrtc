@@ -124,9 +124,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The SFU, built as in server-ci.yml / e2e.yml.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # The SFU, built as in server-ci.yml / e2e.yml (toolchain from
+      # rust-toolchain.toml).
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
