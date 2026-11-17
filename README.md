@@ -29,10 +29,14 @@ one server can serve several worlds.
 - `module.json`: `minimum` 13, `verified` 13.348.
 - The client is written against the public v13/v14 API (`foundry.av.AVClient`,
   AVSettings, ApplicationV2). Foundry v14 (14.368) is the target.
-- **Not yet verified inside a real Foundry server.** The unit tests and the
-  SFU e2e suite run the module against v14-shaped test doubles and a stub
-  page. The Foundry e2e job (`foundry-e2e.yml`, 14.368 gating, 13.351
-  informational) has not run yet. `verified` is raised only after it passes.
+- **Automated tests have not run inside a real Foundry server yet.** The unit
+  tests and the SFU e2e suite run the module against v14-shaped test doubles
+  and a stub page. The Foundry e2e job (`foundry-e2e.yml`, 14.368 gating,
+  13.351 informational) has not run yet. `verified` is raised only after it
+  passes.
+- A manual check on Foundry 14.369 (2026-11-17, module 1.0.0, Chrome and
+  Firefox, SFU behind a reverse proxy and NAT): two users joined and each saw
+  and heard the other.
 - Browser: a Chromium-based browser or the Foundry desktop app. Other browsers
   that `mediasoup-client` supports may work; they are not tested.
 
@@ -88,7 +92,9 @@ cp -r dist/. /path/to/foundrydata/Data/modules/mediasoup-vtt/
    the MediaSoupVTT section, or use its **Configure MediaSoup Server** menu.
 3. Open **Configure Audio/Video** and set the conference mode to Audio/Video,
    Audio Only or Video Only. MediaSoup is used automatically; there is no
-   separate mode to pick.
+   separate mode to pick. The **Server** tab's Relay Server setting has no
+   effect with this module; leave it at the default
+   ([#170](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/170)).
 4. Each user chooses their microphone, camera, voice mode and push-to-talk
    key in **Configure Audio/Video** as usual.
 
@@ -117,6 +123,33 @@ keeps strangers off the server; it does not separate users of the same world.
 - **The dock shows no tiles:** check that the conference mode in Configure
   Audio/Video is not Disabled and that the browser has camera and microphone
   permission.
+- **One user sees the other's video, the other does not:** if the missing
+  tile shows only the avatar (or no tile at all) while the user is
+  connected, the viewing browser has that user hidden or muted. Core keeps
+  this per browser (the hide and mute buttons on a tile), and it survives
+  from earlier A/V setups. Check in that browser's console, then clear it:
+
+  ```js
+  game.webrtc.settings.client.users[game.users.getName("Name").id]
+  ```
+
+  ```js
+  const id = game.users.getName("Name").id; await game.webrtc.settings.set("client", `users.${id}.hidden`, false); await game.webrtc.settings.set("client", `users.${id}.muted`, false); game.webrtc.render();
+  ```
+- **"You cannot use Audio/Video calls unless your Foundry VTT server is using
+  SSL certificates":** Configure Audio/Video checks for a literal `https:`
+  page, so it refuses a plain `http://localhost` development server even
+  though the browser allows camera access there. The A/V client itself has
+  no such check; as the GM, set the mode from the console and reload:
+
+  ```js
+  const cur = game.settings.get("core", "rtcWorldSettings"); await game.settings.set("core", "rtcWorldSettings", { ...(cur.toObject?.() ?? cur), mode: (foundry.av?.AVSettings ?? AVSettings).AV_MODES.AUDIO_VIDEO });
+  ```
+
+  Or serve Foundry over TLS (`sslCert` / `sslKey` in `options.json`).
+- **Server-side symptoms** (users joining and leaving in a loop, port
+  conflicts, reverse-proxy checks): see
+  [`server/README.md` Troubleshooting](server/README.md#troubleshooting).
 
 ## Development
 
