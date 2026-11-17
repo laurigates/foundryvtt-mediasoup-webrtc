@@ -4,6 +4,7 @@ use crate::signaling::{OutgoingMessage, ProducerInfo};
 use dashmap::DashMap;
 use mediasoup::prelude::*;
 use serde_json::Value;
+use std::net::IpAddr;
 use std::num::{NonZeroU8, NonZeroU32};
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, Weak};
@@ -80,7 +81,53 @@ pub struct TransportListenOptions {
     pub port_range: Option<RangeInclusive<u16>>,
 }
 
+/// Choose the address to announce for a listen IP from a hostname's
+/// resolved addresses: one of the listen IP's family if there is one (an
+/// IPv4 socket cannot be reached at an IPv6 address), else the first.
+pub fn pick_announced_address(listen_ip: IpAddr, resolved: &[IpAddr]) -> Option<IpAddr> {
+    resolved
+        .iter()
+        .find(|addr| addr.is_ipv4() == listen_ip.is_ipv4())
+        .or_else(|| resolved.first())
+        .copied()
+}
+
 impl TransportListenOptions {
+    /// Replace every announced hostname with an address it resolves to now.
+    ///
+    /// `MEDIASOUP_ANNOUNCED_IP` may be a DDNS hostname. Resolving it per
+    /// transport, rather than once at startup, lets a host whose WAN IP
+    /// changes recover on the clients' next (re)connect without a restart
+    /// (#169). The address is announced rather than the name because
+    /// browsers are not relied on to resolve hostname ICE candidates.
+    pub async fn resolve_announced(&self) -> Result<TransportListenOptions> {
+        let mut resolved = self.clone();
+        for listen_ip in &mut resolved.listen_ips {
+            let Some(host) = listen_ip.announced_ip.as_deref() else {
+                continue;
+            };
+            if host.parse::<IpAddr>().is_ok() {
+                continue;
+            }
+            let ip: IpAddr = listen_ip.ip.parse().map_err(|_| {
+                MediaSoupError::Config(format!("Invalid WebRTC listen IP '{}'", listen_ip.ip))
+            })?;
+            let addrs: Vec<IpAddr> = tokio::net::lookup_host((host, 0))
+                .await
+                .map_err(|e| {
+                    MediaSoupError::Config(format!("Cannot resolve announced host '{host}': {e}"))
+                })?
+                .map(|addr| addr.ip())
+                .collect();
+            let chosen = pick_announced_address(ip, &addrs).ok_or_else(|| {
+                MediaSoupError::Config(format!("Announced host '{host}' resolved to no address"))
+            })?;
+            debug!("Announced host {host} resolved to {chosen}");
+            listen_ip.announced_ip = Some(chosen.to_string());
+        }
+        Ok(resolved)
+    }
+
     /// Build one `ListenInfo` per enabled protocol for every listen IP.
     /// Invalid IPs are an error (there is no silent `0.0.0.0` fallback: that
     /// would advertise an unroutable candidate).
@@ -420,7 +467,11 @@ impl Room {
         // change between this check and the insert below.
         ensure_below_limit(peer.transports.len(), MAX_TRANSPORTS_PER_PEER, "transports")?;
 
-        let mut infos = listen.listen_infos()?.into_iter();
+        let mut infos = listen
+            .resolve_announced()
+            .await?
+            .listen_infos()?
+            .into_iter();
         // `listen_infos` guarantees at least one entry.
         let first = infos
             .next()
@@ -1125,6 +1176,68 @@ mod tests {
             err.to_string(),
             "Invalid request: Too many things: at most 1 per peer"
         );
+    }
+
+    #[test]
+    fn announced_address_prefers_the_listen_ip_family() {
+        let v4: IpAddr = "203.0.113.7".parse().unwrap();
+        let v6: IpAddr = "2001:db8::7".parse().unwrap();
+        let any_v4: IpAddr = "0.0.0.0".parse().unwrap();
+        let any_v6: IpAddr = "::".parse().unwrap();
+        assert_eq!(pick_announced_address(any_v4, &[v6, v4]), Some(v4));
+        assert_eq!(pick_announced_address(any_v6, &[v4, v6]), Some(v6));
+        // No address of the listen IP's family: fall back to the first.
+        assert_eq!(pick_announced_address(any_v4, &[v6]), Some(v6));
+        assert_eq!(pick_announced_address(any_v4, &[]), None);
+    }
+
+    /// A hostname is replaced by an address it resolves to; IP literals and
+    /// unannounced listen IPs pass through unchanged (#169).
+    #[tokio::test]
+    async fn resolve_announced_replaces_hostnames_only() {
+        let mut listen = loopback_listen();
+        listen.listen_ips = vec![
+            ListenIp {
+                ip: "0.0.0.0".to_string(),
+                announced_ip: Some("localhost".to_string()),
+            },
+            ListenIp {
+                ip: "0.0.0.0".to_string(),
+                announced_ip: Some("198.51.100.4".to_string()),
+            },
+            ListenIp {
+                ip: "127.0.0.1".to_string(),
+                announced_ip: None,
+            },
+        ];
+        let resolved = listen
+            .resolve_announced()
+            .await
+            .expect("localhost resolves");
+        let announced: Vec<Option<String>> = resolved
+            .listen_ips
+            .iter()
+            .map(|l| l.announced_ip.clone())
+            .collect();
+        assert_eq!(
+            announced,
+            vec![
+                Some("127.0.0.1".to_string()),
+                Some("198.51.100.4".to_string()),
+                None
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_announced_fails_for_an_unresolvable_host() {
+        let mut listen = loopback_listen();
+        listen.listen_ips[0].announced_ip = Some("no-such-host.invalid".to_string());
+        let err = listen
+            .resolve_announced()
+            .await
+            .expect_err("must not resolve");
+        assert!(err.to_string().contains("no-such-host.invalid"), "{err}");
     }
 
     #[test]

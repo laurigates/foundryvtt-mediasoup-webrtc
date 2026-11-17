@@ -75,7 +75,7 @@ empty or unrecognised value means the default.
 | `MEDIASOUP_RTC_MIN_PORT` | `10000` | Lowest ICE/RTP port. An unparsable value means the default. |
 | `MEDIASOUP_RTC_MAX_PORT` | `10100` | Highest ICE/RTP port. Must not be below the minimum. |
 | `MEDIASOUP_LISTEN_IP` | `0.0.0.0` | IP the WebRTC sockets bind to. `::` for IPv6 wildcard, or a concrete interface address. |
-| `MEDIASOUP_ANNOUNCED_IP` | unset | Address put into ICE candidates: the public IP or DNS name clients reach this host on. **Required** when `MEDIASOUP_LISTEN_IP` is a wildcard (the default). Empty means unset. |
+| `MEDIASOUP_ANNOUNCED_IP` | unset | Address put into ICE candidates: the public IP or DNS name clients reach this host on. A DNS name is resolved each time a transport is created and its address is announced. **Required** when `MEDIASOUP_LISTEN_IP` is a wildcard (the default). Empty means unset. |
 | `MEDIASOUP_ALLOW_UNANNOUNCED` | off | Start with a wildcard listen IP and no announced IP anyway (logs a warning). Local testing only. |
 | `MEDIASOUP_ENABLE_UDP` | on | Offer UDP ICE candidates. |
 | `MEDIASOUP_ENABLE_TCP` | on | Offer TCP ICE candidates (fallback for networks that block UDP). |
@@ -163,9 +163,11 @@ sudo tcpdump -ni any 'udp port 40050'
 python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"probe", ("203.0.113.7", 40050))'
 ```
 
-A dynamic WAN address needs the announced IP updated (and the server
-restarted) whenever it changes; see
-[#169](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/169).
+For a dynamic WAN address, set `MEDIASOUP_ANNOUNCED_IP` to the DDNS hostname
+instead of the address. The server resolves it whenever a client creates a
+transport, so after an address change media recovers when each client
+reconnects, with no restart. The candidates carry the resolved address, not
+the name, so browsers need not resolve hostname candidates.
 
 ### Rooms
 
