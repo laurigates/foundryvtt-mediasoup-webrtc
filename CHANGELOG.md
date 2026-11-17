@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.0.0...foundryvtt-mediasoup-webrtc-v1.1.0) (2026-11-17)
+
+
+### Features
+
+* **client:** honour core's Relay Server (TURN) setting ([#174](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/174)) ([5fa99aa](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/5fa99aaa48e556c6e4129262f2d4e58226eae54f)), closes [#170](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/170)
+* **server:** resolve a hostname in MEDIASOUP_ANNOUNCED_IP per transport ([#175](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/175)) ([5ae81a1](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/5ae81a1e48d750496c57f291acabeac4376f025b)), closes [#169](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/169)
+
+
+### Documentation
+
+* self-hosting lessons from the first real deployment ([#171](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/171)) ([c1b6a06](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/c1b6a06c4bd5e7e666ca40bd83eb0c10b1c1ebce))
+
+
+### Miscellaneous
+
+* **claude:** reconcile Claude Code config with the repo baseline ([#160](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/160)) ([2d74173](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/2d741736608d04390206e595e1e0534b11dddef2))
+* **deps:** lock file maintenance ([#159](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/159)) ([8c569aa](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/8c569aa61474e7f70bc151a3d8b7ebe94192e7fa))
+* **deps:** update rust to v1.100.0 ([#165](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/165)) ([e5c3bfe](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/e5c3bfe65da1e037f2269bbed51389e1052d4a46))
+
 ## [1.0.0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v0.7.20...foundryvtt-mediasoup-webrtc-v1.0.0) (2026-11-17)
 
 
