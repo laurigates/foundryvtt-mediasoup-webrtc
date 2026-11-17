@@ -129,6 +129,44 @@ real deployment needs TLS on the signaling port: either native TLS
 ports are not proxied; clients connect to them directly at the announced
 address.
 
+### Choosing the RTC range
+
+The default 10000-10100 is easy to collide with on a host that runs other
+services; a single port in use inside the range stops Docker from publishing
+it (`failed to bind host port ... address already in use`). List what is
+taken first (`ss -Hltnu`), and move the range with `MEDIASOUP_RTC_MIN_PORT` /
+`MEDIASOUP_RTC_MAX_PORT` and the published ports together. 40000-40100 is a
+range that rarely collides.
+
+### Behind a home router (NAT)
+
+When the server sits on a LAN and players connect from the internet:
+
+- Set `MEDIASOUP_ANNOUNCED_IP` to the router's public (WAN) address.
+- Forward the RTC range on the router, **UDP and TCP**, to the server host,
+  with the **same internal ports** as the external ones (external 40000-40100
+  to internal 40000-40100). A forward to the wrong internal port lets
+  signaling work while no media ever arrives.
+- Players on the same LAN as the server also connect to the public address,
+  so the router must loop traffic back (NAT loopback, also called hairpin
+  NAT). If HTTPS to your own public hostname works from inside the LAN,
+  loopback is on for that port, but check the RTC range separately.
+
+To test the media path, send UDP to the public address from inside the LAN
+while capturing on the server host. The datagrams must arrive; on a Docker
+host they also appear forwarded into the container:
+
+```bash
+# on the server host
+sudo tcpdump -ni any 'udp port 40050'
+# on another LAN machine
+python3 -c 'import socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"probe", ("203.0.113.7", 40050))'
+```
+
+A dynamic WAN address needs the announced IP updated (and the server
+restarted) whenever it changes; see
+[#169](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/169).
+
 ### Rooms
 
 The `roomId` in a client's `authenticate` frame selects its room. The module
@@ -257,6 +295,13 @@ MEDIASOUP_ANNOUNCED_IP=203.0.113.7 MEDIASOUP_AUTH_TOKEN=change-me \
   docker compose up --build
 ```
 
+Released images are published to
+`ghcr.io/laurigates/mediasoup-vtt-server` (`linux/amd64`), tagged with the
+module version (`1.0.0`, `1.0`, `1`). Server and module share one signaling
+protocol, so run the image tag that matches the installed module version. To
+use it instead of building, replace `build: .` in the compose file with
+`image: ghcr.io/laurigates/mediasoup-vtt-server:1`.
+
 Inside the container the server listens on `0.0.0.0`, so
 `MEDIASOUP_ANNOUNCED_IP` is required; without it the container exits at
 startup with the validation error above. The address must be the one browsers
@@ -299,6 +344,33 @@ server {
 
 The module's server URL is then `wss://sfu.example.com`.
 
+The server does not look at the WebSocket request path, so it can also live
+under a path on the Foundry host itself, which needs no extra DNS name or
+certificate. Add a location to Foundry's existing `server` block:
+
+```nginx
+location /sfu {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+The module's server URL is then `wss://foundry.example.com/sfu`. In Nginx
+Proxy Manager, paste the location into the Foundry proxy host's **Advanced**
+tab. Check the upgrade from outside with:
+
+```bash
+curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==' https://foundry.example.com/sfu | head -1
+```
+
+`HTTP/1.1 101 Switching Protocols` means the proxy carries the WebSocket. The
+server then waits for the auth message and closes the connection, logging
+`Authentication failed` for it.
+
 ### systemd
 
 ```ini
@@ -337,6 +409,15 @@ world can read it.
 - **Connects, but no audio or video:** the announced address is wrong or the
   RTC range is blocked. Check both UDP and TCP on the range, and look at the
   `iceCandidates` in the `createWebRtcTransport` response.
+- **A user joins, creates producers, and leaves again every 15-50 seconds**
+  (`Added peer` / `Created producer` / `Removed peer` repeating for the same
+  user): ICE never connects, so the module restarts ICE twice and then
+  reconnects from scratch. No media packets reach the RTC range; see
+  [Behind a home router](#behind-a-home-router-nat) for the forward and
+  loopback checks.
+- **`failed to bind host port ... address already in use` at container
+  start:** a port inside the RTC range is taken; see
+  [Choosing the RTC range](#choosing-the-rtc-range).
 - **`Invalid authentication token`:** the module's token does not match
   `MEDIASOUP_AUTH_TOKEN`.
 - **One client keeps dropping another:** both use the same Foundry user; see

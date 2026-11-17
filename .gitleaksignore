@@ -1,0 +1,3 @@
+# RFC 6455's sample Sec-WebSocket-Key ("the sample nonce") in a curl example,
+# replaced in the next commit; this entry only clears the PR's history scan.
+f597641c53757121b3f1ff9d443463149dd15257:server/README.md:generic-api-key:367
