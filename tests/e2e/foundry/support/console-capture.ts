@@ -52,6 +52,6 @@ export function isDeprecation(entry: ConsoleEntry): boolean {
 }
 
 /** Compact form for assertion messages and attachments. */
-export function describe(entries: ConsoleEntry[]): string[] {
+export function formatEntries(entries: ConsoleEntry[]): string[] {
   return entries.map((e) => `[${e.type}] ${e.text.split('\n').slice(0, 6).join(' | ')}`);
 }
