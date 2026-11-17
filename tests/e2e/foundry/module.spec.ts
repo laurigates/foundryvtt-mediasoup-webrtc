@@ -4,7 +4,12 @@
  * and its UI renders as ApplicationV2 against core's real DOM.
  */
 
-import { describe, isDeprecation, isFromModule, isProblem } from './support/console-capture.js';
+import {
+  formatEntries,
+  isDeprecation,
+  isFromModule,
+  isProblem,
+} from './support/console-capture.js';
 import {
   ALLOW_CORE_DEPRECATIONS,
   EXPECTED_FOUNDRY_VERSION,
@@ -154,17 +159,20 @@ test('loads without errors, warnings or deprecations from the module', async ({ 
   ).toBe(true);
 
   const fromModule = entries.filter((e) => isProblem(e) && isFromModule(e));
-  expect(describe(fromModule), 'console errors/warnings raised by or about the module').toEqual([]);
+  expect(
+    formatEntries(fromModule),
+    'console errors/warnings raised by or about the module',
+  ).toEqual([]);
 
   const deprecations = entries.filter((e) => isProblem(e) && isDeprecation(e));
   if (deprecations.length > 0) {
     test.info().annotations.push({
       type: 'deprecations',
-      description: describe(deprecations).join('\n'),
+      description: formatEntries(deprecations).join('\n'),
     });
   }
   const blocking = ALLOW_CORE_DEPRECATIONS ? deprecations.filter(isFromModule) : deprecations;
-  expect(describe(blocking), 'deprecation warnings during load').toEqual([]);
+  expect(formatEntries(blocking), 'deprecation warnings during load').toEqual([]);
 });
 
 test('the configuration menu opens an ApplicationV2 form showing the saved server', async ({
