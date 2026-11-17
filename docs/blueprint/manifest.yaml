@@ -1,63 +1,63 @@
 project:
-    name: foundryvtt-mediasoup-webrtc
-    description: >
-        FoundryVTT AVClient that carries core audio/video through a self-hosted
-        MediaSoup SFU server. Server-side audio recording for external D&D
-        helper applications is a goal, not yet implemented.
-    version: 0.7.20
-    language: typescript
-    framework: none (FoundryVTT module)
-    toolchain: vite + bun + biome + vitest
-    repository: https://github.com/laurigates/foundryvtt-mediasoup-webrtc
-    license: MIT
+  name: foundryvtt-mediasoup-webrtc
+  description: >
+    FoundryVTT AVClient that carries core audio/video through a self-hosted
+    MediaSoup SFU server. Server-side audio recording for external D&D
+    helper applications is a goal, not yet implemented.
+  version: 0.7.20
+  language: typescript
+  framework: none (FoundryVTT module)
+  toolchain: vite + bun + biome + vitest
+  repository: https://github.com/laurigates/foundryvtt-mediasoup-webrtc
+  license: MIT
 
 components:
-    - name: client-module
-      path: src/
-      language: typescript
-      description: FoundryVTT ES module built with Vite (bundled to dist/mediasoup-vtt.mjs)
-    - name: sfu-server
-      path: server/
-      language: rust
-      description: MediaSoup SFU server with WebSocket signaling
-    - name: unit-tests
-      path: tests/unit/
-      language: typescript
-      description: Vitest unit suite with v14-shaped Foundry test doubles (ci.yml)
-    - name: sfu-e2e-tests
-      path: tests/e2e/sfu/
-      language: typescript
-      description: Playwright suite running the real bundle on a Foundry stub page against the real SFU (e2e.yml, every PR)
-    - name: foundry-e2e-tests
-      path: tests/e2e/foundry/
-      language: typescript
-      description: Playwright suite against a real Foundry server (foundry-e2e.yml, only when Foundry secrets exist; not yet run)
+  - name: client-module
+    path: src/
+    language: typescript
+    description: FoundryVTT ES module built with Vite (bundled to dist/mediasoup-vtt.mjs)
+  - name: sfu-server
+    path: server/
+    language: rust
+    description: MediaSoup SFU server with WebSocket signaling
+  - name: unit-tests
+    path: tests/unit/
+    language: typescript
+    description: Vitest unit suite with v14-shaped Foundry test doubles (ci.yml)
+  - name: sfu-e2e-tests
+    path: tests/e2e/sfu/
+    language: typescript
+    description: Playwright suite running the real bundle on a Foundry stub page against the real SFU (e2e.yml, every PR)
+  - name: foundry-e2e-tests
+    path: tests/e2e/foundry/
+    language: typescript
+    description: Playwright suite against a real Foundry server (foundry-e2e.yml, only when Foundry secrets exist; not yet run)
 
 documents:
-    prds:
-        - id: PRD-001
-          file: prds/PRD-001-mediasoup-vtt-client-module.md
-          title: MediaSoupVTT Client Module
-          status: draft
-          created: 2026-03-05
-    adrs:
-        - id: ADR-001
-          file: adrs/ADR-001-mediasoup-sfu-architecture.md
-          title: MediaSoup SFU Architecture
-          status: accepted
-          created: 2026-03-05
-        - id: ADR-002
-          file: adrs/ADR-002-rollup-es-modules-build-system.md
-          title: Rollup and ES Modules Build System
-          status: superseded
-          created: 2026-03-05
-        - id: ADR-003
-          file: adrs/ADR-003-vite-typescript-build-system.md
-          title: Vite + TypeScript Build System
-          status: accepted
-          created: 2026-07-01
-        - id: ADR-004
-          file: adrs/ADR-004-foundry-avclient-integration.md
-          title: Integrate as a Foundry AVClient
-          status: accepted
-          created: 2026-09-30
+  prds:
+    - id: PRD-001
+      file: prds/PRD-001-mediasoup-vtt-client-module.md
+      title: MediaSoupVTT Client Module
+      status: draft
+      created: 2026-03-05
+  adrs:
+    - id: ADR-001
+      file: adrs/ADR-001-mediasoup-sfu-architecture.md
+      title: MediaSoup SFU Architecture
+      status: accepted
+      created: 2026-03-05
+    - id: ADR-002
+      file: adrs/ADR-002-rollup-es-modules-build-system.md
+      title: Rollup and ES Modules Build System
+      status: superseded
+      created: 2026-03-05
+    - id: ADR-003
+      file: adrs/ADR-003-vite-typescript-build-system.md
+      title: Vite + TypeScript Build System
+      status: accepted
+      created: 2026-07-01
+    - id: ADR-004
+      file: adrs/ADR-004-foundry-avclient-integration.md
+      title: Integrate as a Foundry AVClient
+      status: accepted
+      created: 2026-09-30
