@@ -364,7 +364,7 @@ Proxy Manager, paste the location into the Foundry proxy host's **Advanced**
 tab. Check the upgrade from outside with:
 
 ```bash
-curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' https://foundry.example.com/sfu | head -1
+curl -si --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==' https://foundry.example.com/sfu | head -1
 ```
 
 `HTTP/1.1 101 Switching Protocols` means the proxy carries the WebSocket. The
