@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.0...foundryvtt-mediasoup-webrtc-v1.1.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **deps:** pin dependencies ([#141](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/141)) ([3e96c81](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/3e96c81f509dcb7f651adbbe763aac7e62dcaea7))
+
 ## [1.1.0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.0.0...foundryvtt-mediasoup-webrtc-v1.1.0) (2026-11-17)
 
 
