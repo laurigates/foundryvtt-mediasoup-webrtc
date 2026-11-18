@@ -16,6 +16,9 @@ permissions:
 
 jobs:
   review:
+    # claude-code-action refuses bot actors (release-please, Renovate) unless
+    # they are in allowed_bots; their PRs need no review, so skip the job.
+    if: github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
