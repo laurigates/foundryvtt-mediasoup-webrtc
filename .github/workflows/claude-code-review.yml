@@ -33,7 +33,7 @@ jobs:
             - Potential bugs or security issues
             - Test coverage gaps
             - Documentation needs
-          claude_args: "--model opus --effort medium --max-turns 5"
+          claude_args: "--model opus --effort low --max-turns 5"
           plugin_marketplaces: |
             https://github.com/laurigates/claude-plugins.git
           # The suffix is the marketplace `name` (same as the settings.json extraKnownMarketplaces key).
