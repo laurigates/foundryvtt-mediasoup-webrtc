@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.1...foundryvtt-mediasoup-webrtc-v1.1.2) (2026-11-21)
+
+
+### Miscellaneous
+
+* **deps:** update vitest monorepo to v5.1.1 ([#182](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/182)) ([3154a7f](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/3154a7fcf41e787ba621a5658d0f54596c80a60f))
+
 ## [1.1.1](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.0...foundryvtt-mediasoup-webrtc-v1.1.1) (2026-11-18)
 
 
