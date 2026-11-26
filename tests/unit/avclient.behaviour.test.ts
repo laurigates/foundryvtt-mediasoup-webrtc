@@ -152,30 +152,112 @@ describe('capture and send', () => {
     expect(localProducer('audio')?.paused).toBe(false);
 
     settings.set('client', `users.${LOCAL_USER_ID}.muted`, true);
-    await until(() => localProducer('audio')?.paused === true);
-    expect(localTrack(client, 'audio')?.enabled).toBe(false);
+    await until(() => localProducer('audio') === undefined);
     client.toggleBroadcast(true);
     await flush(20);
-    expect(localProducer('audio')?.paused).toBe(true);
+    expect(localProducer('audio')).toBeUndefined();
     expect(client.audioBroadcastEnabled).toBe(false);
-    expect(localTrack(client, 'audio')?.enabled).toBe(false);
 
     settings.set('client', `users.${LOCAL_USER_ID}.muted`, false);
     await until(() => localProducer('audio')?.paused === false);
     expect(localTrack(client, 'audio')?.enabled).toBe(true);
   });
 
-  it('hiding the camera pauses the webcam producer and showing it resumes it', async () => {
+  it('muting releases the microphone and unmuting captures it again', async () => {
+    const { master, client, settings } = av({ settings: { voiceMode: 'ptt' } });
+    await master.connect();
+    await flush(20);
+    const mic = localTrack(client, 'audio');
+    const levels = client.getLevelsStreamForUser(LOCAL_USER_ID)?.getAudioTracks()[0];
+
+    settings.set('client', `users.${LOCAL_USER_ID}.muted`, true);
+    await until(() => sfu.requests('closeProducer').length === 1);
+    await flush(20);
+    // The device is free, so the browser's microphone indicator goes off.
+    expect(mic?.readyState).toBe('ended');
+    expect(levels?.readyState).toBe('ended');
+    expect(localTrack(client, 'audio')).toBeUndefined();
+    expect(localTrack(client, 'video')?.readyState).toBe('live');
+    // Still reported as available, so core lets the user unmute.
+    expect(client.isAudioEnabled()).toBe(true);
+    expect(gum()).toHaveBeenCalledTimes(1);
+
+    settings.set('client', `users.${LOCAL_USER_ID}.muted`, false);
+    await until(() => localProducer('audio') !== undefined);
+    await flush(20);
+    // Only the microphone is opened again; push-to-talk keeps it paused.
+    expect(gum()).toHaveBeenCalledTimes(2);
+    expect(gum().mock.calls[1]?.[0].video).toBe(false);
+    expect(localTrack(client, 'audio')?.readyState).toBe('live');
+    expect(localProducer('audio')?.paused).toBe(true);
+    const newLevels = client.getLevelsStreamForUser(LOCAL_USER_ID)?.getAudioTracks()[0];
+    expect(newLevels?.readyState).toBe('live');
+    master.broadcast(true);
+    await until(() => localProducer('audio')?.paused === false);
+  });
+
+  it('a user muted before connecting never opens the microphone', async () => {
+    const { master, client } = av({
+      settings: { voiceMode: 'always', users: { [LOCAL_USER_ID]: { muted: true } } },
+    });
+    expect(await master.connect()).toBe(true);
+    await flush(20);
+    expect(gum()).toHaveBeenCalledTimes(1);
+    expect(gum().mock.calls[0]?.[0].audio).toBe(false);
+    expect(localProducer('audio')).toBeUndefined();
+    expect(client.isAudioEnabled()).toBe(true);
+  });
+
+  it('hiding the camera releases it and showing it captures it again', async () => {
     const { master, client, settings } = av();
     await master.connect();
     await flush(20);
-    expect(localTrack(client, 'video')?.enabled).toBe(true);
+    const camera = localTrack(client, 'video');
+    expect(camera?.enabled).toBe(true);
+
     settings.set('client', `users.${LOCAL_USER_ID}.hidden`, true);
-    await until(() => localProducer('video')?.paused === true);
-    expect(localTrack(client, 'video')?.enabled).toBe(false);
+    await until(() => localProducer('video') === undefined);
+    await flush(20);
+    // The camera is closed, so its light goes off; the microphone stays open.
+    expect(camera?.readyState).toBe('ended');
+    expect(localTrack(client, 'video')).toBeUndefined();
+    expect(localTrack(client, 'audio')?.readyState).toBe('live');
+    expect(client.isVideoEnabled()).toBe(true);
+    expect(master.canUserShareVideo(LOCAL_USER_ID)).toBe(false);
+
     settings.set('client', `users.${LOCAL_USER_ID}.hidden`, false);
     await until(() => localProducer('video')?.paused === false);
+    expect(gum()).toHaveBeenCalledTimes(2);
+    expect(gum().mock.calls[1]?.[0].audio).toBe(false);
+    expect(localTrack(client, 'video')?.readyState).toBe('live');
     expect(localTrack(client, 'video')?.enabled).toBe(true);
+    expect(master.canUserShareVideo(LOCAL_USER_ID)).toBe(true);
+  });
+
+  it('a user hidden before connecting never opens the camera', async () => {
+    const { master, client } = av({ settings: { users: { [LOCAL_USER_ID]: { hidden: true } } } });
+    expect(await master.connect()).toBe(true);
+    await flush(20);
+    expect(gum()).toHaveBeenCalledTimes(1);
+    expect(gum().mock.calls[0]?.[0].video).toBe(false);
+    expect(localProducer('video')).toBeUndefined();
+    expect(client.isVideoEnabled()).toBe(true);
+  });
+
+  it('repeated show requests open the camera once', async () => {
+    const { master, client, settings } = av();
+    await master.connect();
+    await flush(20);
+    settings.set('client', `users.${LOCAL_USER_ID}.hidden`, true);
+    await until(() => localProducer('video') === undefined);
+    settings.set('client', `users.${LOCAL_USER_ID}.hidden`, false);
+    client.toggleVideo(true);
+    client.toggleVideo(true);
+    await until(() => localProducer('video') !== undefined);
+    await flush(20);
+    expect(gum()).toHaveBeenCalledTimes(2);
+    expect(client.localStream?.getVideoTracks()).toHaveLength(1);
+    expect(sfu.producersOf(LOCAL_USER_ID).filter((p) => p.kind === 'video')).toHaveLength(1);
   });
 
   it('a device change re-captures and swaps the track into the existing producer (replaceTrack)', async () => {

@@ -153,6 +153,15 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
    * resolves after it was superseded releases its tracks instead of keeping them.
    */
   #captureGeneration = 0;
+  /**
+   * The microphone (camera) was released because the user muted (hid) it.
+   * It still counts as enabled, since core treats a client without audio
+   * (video) as muted (hidden) and would not let the user turn it back on.
+   */
+  #audioReleased = false;
+  #videoReleased = false;
+  /** Serializes captures and releases, so overlapping toggles open a device once. */
+  #mediaQueue: Promise<unknown> = Promise.resolve();
   /** Bumped by disconnect, so a connect it superseded stays quiet. */
   #connectGeneration = 0;
   readonly #unsubscribe: Array<() => void> = [];
@@ -382,29 +391,28 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     return stream;
   }
 
-  /** Is there a local audio track that can be sent? */
+  /** Is there a local audio track, or one released while muted? */
   override isAudioEnabled(): boolean {
-    return (this.localStream?.getAudioTracks().length ?? 0) > 0;
+    return this.#audioReleased || (this.localStream?.getAudioTracks().length ?? 0) > 0;
   }
 
-  /** Is there a local video track that can be sent? */
+  /** Is there a local video track, or one released while hidden? */
   override isVideoEnabled(): boolean {
-    return (this.localStream?.getVideoTracks().length ?? 0) > 0;
+    return this.#videoReleased || (this.localStream?.getVideoTracks().length ?? 0) > 0;
   }
 
   /**
    * Mute or unmute the local microphone (the user muted themselves, or the GM
    * muted them). Muting always stops the broadcast. Unmuting resumes it at
    * once only in "always" mode; with push-to-talk or voice activation,
-   * AVMaster turns the broadcast on through {@link toggleBroadcast}.
+   * AVMaster turns the broadcast on through {@link toggleBroadcast}. A muted
+   * user's microphone is released, and captured again on unmute.
    */
   override toggleAudio(enable: boolean): void {
     log(`toggleAudio(${enable})`, 'debug');
-    if (!enable) {
-      this.toggleBroadcast(false);
-      return;
-    }
-    if (this.isVoiceAlways) this.toggleBroadcast(true);
+    if (!enable) this.toggleBroadcast(false);
+    else if (this.isVoiceAlways) this.toggleBroadcast(true);
+    this.#syncReleasedDevices();
   }
 
   /**
@@ -418,12 +426,16 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     this.#applyAudioState();
   }
 
-  /** Show or hide the local camera (hidden by the user or the GM). */
+  /**
+   * Show or hide the local camera (hidden by the user or the GM). A hidden
+   * camera is released, so its light goes off, and captured again on show.
+   */
   override toggleVideo(enable: boolean): void {
     const allowed = enable && this.#canShareVideo();
     log(`toggleVideo(${enable}) -> ${allowed}`, 'debug');
     this.videoBroadcastEnabled = allowed;
     this.#applyVideoState();
+    this.#syncReleasedDevices();
     this.render();
   }
 
@@ -591,20 +603,179 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
   }
 
   /**
-   * Capture local audio/video as the AV mode, permissions and devices allow.
-   * Returns false when a later capture or a disconnect superseded this one
-   * while getUserMedia was pending; its tracks are then stopped.
+   * Which devices to hold open. Reads the stored mute/hide choice rather than
+   * core's canUserShare*, which counts a client without a track as muted or
+   * hidden and so could never reopen a released device. `*Released` marks a
+   * device that would be open but for the user's choice.
    */
-  async #initializeLocalStream(): Promise<boolean> {
-    this.#stopLocalStream();
-    const capture = ++this.#captureGeneration;
+  #wantedDevices(): {
+    audio: boolean;
+    video: boolean;
+    audioReleased: boolean;
+    videoReleased: boolean;
+  } {
     const self = this.#userId;
     const client = this.settings.client;
-    const audio = deviceConstraint(client?.audioSrc, this.master.canUserBroadcastAudio(self));
-    const video = deviceConstraint(client?.videoSrc, this.master.canUserBroadcastVideo(self), {
+    const stored = client?.users?.[self];
+    const blocked = stored?.blocked === true;
+    const muted = stored?.muted === true || blocked;
+    const hidden = stored?.hidden === true || blocked;
+    const hasMic =
+      deviceConstraint(client?.audioSrc, this.master.canUserBroadcastAudio(self)) !== false;
+    const hasCamera =
+      deviceConstraint(client?.videoSrc, this.master.canUserBroadcastVideo(self)) !== false;
+    return {
+      audio: hasMic && !muted,
+      video: hasCamera && !hidden,
+      audioReleased: hasMic && muted,
+      videoReleased: hasCamera && hidden,
+    };
+  }
+
+  #audioConstraint(): MediaTrackConstraints | false {
+    return deviceConstraint(this.settings.client?.audioSrc, true);
+  }
+
+  #videoConstraint(): MediaTrackConstraints | false {
+    return deviceConstraint(this.settings.client?.videoSrc, true, {
       width: { ideal: VIDEO_IDEAL_WIDTH },
       height: { ideal: VIDEO_IDEAL_HEIGHT },
     });
+  }
+
+  /** Run a capture or release after the ones already queued. */
+  #enqueueMedia<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.#mediaQueue.then(task, task);
+    this.#mediaQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Release a muted microphone or hidden camera, or reopen it once turned back on. */
+  #syncReleasedDevices(): void {
+    this.#enqueueMedia(() => this.#applyReleasedDevices()).catch((error: unknown) =>
+      log(`Could not update the local devices: ${errorMessage(error)}`, 'error'),
+    );
+  }
+
+  async #applyReleasedDevices(): Promise<void> {
+    // Before connecting, the connect's own capture applies the choice.
+    if (!this.transport.isConnected && !this.transport.isReconnecting) return;
+    const wanted = this.#wantedDevices();
+    const hasMic = (this.localStream?.getAudioTracks().length ?? 0) > 0;
+    const hasCamera = (this.localStream?.getVideoTracks().length ?? 0) > 0;
+    let changed = false;
+    if (hasMic && !wanted.audio) {
+      this.#releaseTracks('audio');
+      this.#audioReleased = wanted.audioReleased;
+      changed = true;
+    }
+    if (hasCamera && !wanted.video) {
+      this.#releaseTracks('video');
+      this.#videoReleased = wanted.videoReleased;
+      changed = true;
+    }
+    const reopenMic = this.#audioReleased && wanted.audio;
+    const reopenCamera = this.#videoReleased && wanted.video;
+    if (reopenMic || reopenCamera) {
+      changed = (await this.#reopenDevices(reopenMic, reopenCamera)) || changed;
+    }
+    if (!changed) return;
+    this.#broadcastActivity();
+    this.render();
+  }
+
+  /** Stop the local tracks of one kind, free the device and close its producer. */
+  #releaseTracks(kind: 'audio' | 'video'): void {
+    const stream = this.localStream;
+    const released = kind === 'audio' ? stream?.getAudioTracks() : stream?.getVideoTracks();
+    for (const track of released ?? []) track.stop();
+    const kept = stream?.getTracks().filter((t) => t.kind !== kind) ?? [];
+    // A new stream object makes the local tile re-attach it.
+    this.localStream = kept.length ? new MediaStream(kept) : null;
+    if (kind === 'audio') {
+      for (const track of this.levelsStream?.getTracks() ?? []) track.stop();
+      this.levelsStream = null;
+      this.transport.closeProducer(APP_DATA_TAG_MIC, true);
+      this.#restartVoiceDetection(this.settings.client?.voice?.mode ?? 'ptt');
+    } else {
+      this.transport.closeProducer(APP_DATA_TAG_WEBCAM, true);
+    }
+    log(`Released the local ${kind} device.`, 'debug');
+  }
+
+  /**
+   * Capture a released microphone and/or camera again and send it. Returns
+   * whether the local state changed.
+   */
+  async #reopenDevices(audio: boolean, video: boolean): Promise<boolean> {
+    if (!navigator.mediaDevices?.getUserMedia) return false;
+    const capture = this.#captureGeneration;
+    const constraints: MediaStreamConstraints = {
+      audio: audio ? this.#audioConstraint() : false,
+      video: video ? this.#videoConstraint() : false,
+    };
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      if (capture !== this.#captureGeneration) return false;
+      log(`getUserMedia(${JSON.stringify(constraints)}) failed: ${errorMessage(error)}`, 'warn');
+      if (audio) this.#audioReleased = false;
+      if (video) this.#videoReleased = false;
+      notify(
+        'warn',
+        formatOr(
+          'MEDIASOUPVTT.Notifications.MediaAccessFailed',
+          'Could not access your camera or microphone: {error}',
+          { error: errorMessage(error) },
+        ),
+      );
+      return true;
+    }
+    if (capture !== this.#captureGeneration) {
+      for (const track of stream.getTracks()) track.stop();
+      return false;
+    }
+    const audioTrack = audio ? stream.getAudioTracks()[0] : undefined;
+    const videoTrack = video ? stream.getVideoTracks()[0] : undefined;
+    this.localStream = new MediaStream([
+      ...(this.localStream?.getTracks() ?? []),
+      ...[audioTrack, videoTrack].filter((t): t is MediaStreamTrack => !!t),
+    ]);
+    if (audio) {
+      this.#audioReleased = false;
+      this.levelsStream = audioTrack ? new MediaStream([audioTrack.clone()]) : null;
+    }
+    if (video) this.#videoReleased = false;
+    this.#applyAudioState();
+    this.#applyVideoState();
+    if (audioTrack)
+      await this.#produceOrClose(APP_DATA_TAG_MIC, audioTrack, !this.audioBroadcastEnabled);
+    if (videoTrack) {
+      await this.#produceOrClose(APP_DATA_TAG_WEBCAM, videoTrack, !this.videoBroadcastEnabled);
+    }
+    if (audio) this.#restartVoiceDetection(this.settings.client?.voice?.mode ?? 'ptt');
+    return true;
+  }
+
+  /**
+   * Capture local audio/video as the AV mode, permissions and devices allow.
+   * Returns false when a later capture or a disconnect superseded this one
+   * while getUserMedia was pending; its tracks are then stopped. A muted
+   * microphone and a hidden camera are not opened.
+   */
+  #initializeLocalStream(): Promise<boolean> {
+    return this.#enqueueMedia(() => this.#captureLocalStream());
+  }
+
+  async #captureLocalStream(): Promise<boolean> {
+    this.#stopLocalStream();
+    const capture = ++this.#captureGeneration;
+    const wanted = this.#wantedDevices();
+    const audio = wanted.audio ? this.#audioConstraint() : false;
+    const video = wanted.video ? this.#videoConstraint() : false;
+    this.#audioReleased = !audio && wanted.audioReleased;
+    this.#videoReleased = !video && wanted.videoReleased;
     if (!audio && !video) {
       log('Local media disabled by the A/V mode, permissions or device settings.', 'info');
       return true;
@@ -741,6 +912,8 @@ export class MediaSoupAVClient extends foundry.av.AVClient {
     for (const track of this.levelsStream?.getTracks() ?? []) track.stop();
     this.localStream = null;
     this.levelsStream = null;
+    this.#audioReleased = false;
+    this.#videoReleased = false;
   }
 
   /** A remote producer was paused or resumed: refresh that user's tile markers. */

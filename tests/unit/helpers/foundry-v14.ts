@@ -495,16 +495,26 @@ export class AVSettings {
     return getProperty(this[scope], path);
   }
 
-  /** The stored per-user values over the defaults, plus the user's permissions. */
+  /**
+   * The stored per-user values over the defaults, plus the user's permissions.
+   * For the local user, as in core, a client that reports no audio (video)
+   * makes the user count as muted (hidden) whatever is stored.
+   */
   getUser(userId: string): AnyRecord | null {
     const user: FakeUser | undefined = globals().game.users.get(userId);
     if (!user) return null;
-    return {
+    const settings: AnyRecord = {
       ...AVSettings.DEFAULT_USER_SETTINGS,
       ...(this.client.users?.[userId] ?? {}),
       canBroadcastAudio: user.can('BROADCAST_AUDIO'),
       canBroadcastVideo: user.can('BROADCAST_VIDEO'),
     };
+    const client = globals().game.webrtc?.client;
+    if (userId === selfId() && client) {
+      settings.muted ||= !client.isAudioEnabled();
+      settings.hidden ||= !client.isVideoEnabled();
+    }
+    return settings;
   }
 
   /**
@@ -588,8 +598,14 @@ export class AVMaster {
   /** A spy only: the module recovers by itself and must never call it. */
   readonly reestablish = vi.fn(async () => {});
 
-  /** Hands the change to the client (the module's handler under test). */
+  /**
+   * As core: a change to the local user's `hidden` / `muted` toggles video /
+   * audio first, then the change goes to the client's own handler.
+   */
   readonly onSettingsChanged = vi.fn((changed: object): Promise<boolean> | undefined => {
+    const sharing: AnyRecord = getProperty(changed, `client.users.${selfId()}`) ?? {};
+    if ('hidden' in sharing) this.client.toggleVideo(this.canUserShareVideo(selfId()));
+    if ('muted' in sharing) this.client.toggleAudio(this.canUserShareAudio(selfId()));
     this.client.onSettingsChanged(changed);
     return undefined;
   });
