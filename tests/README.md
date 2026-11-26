@@ -99,10 +99,10 @@ real media flow, which only the e2e tiers prove.
     packets and audio energy grow between two samples, and video frames
     decode; "mute all" re-renders and mutes the remote tile;
   - a late joiner receives a peer that was already producing;
-  - mute and hide (through `AVSettings`) disable the local track and pause the
-    remote producer: the paused flag reaches the other peer and its packets
-    and audio energy stop, while the other kind keeps flowing; unmute and
-    show resume them with audible audio and a real picture;
+  - mute and hide (through `AVSettings`) release the microphone / camera and
+    close its producer, so the other peer's consumer goes away while the other
+    kind keeps flowing; unmute and show capture the device again and give a
+    new consumer with audible audio and a real picture;
   - a disabled audio source closes the mic producer (the remote consumer goes
     away); re-enabling it gives exactly one new audio consumer;
   - a wrong token fails `connect()` with a notification and no reconnect

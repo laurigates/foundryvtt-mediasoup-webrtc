@@ -101,7 +101,9 @@ test('a late joiner receives the tracks of a peer that is already producing', as
   await a.expectReceiving('bob');
 });
 
-test('mute and hide pause the remote tracks; unmute and show resume them', async ({ peers }) => {
+test('mute and hide release the devices and close the remote tracks; unmute and show reopen them', async ({
+  peers,
+}) => {
   const users = ['alice', 'bob'];
   const a = await peers({ user: 'alice', users });
   const b = await peers({ user: 'bob', users });
@@ -109,55 +111,55 @@ test('mute and hide pause the remote tracks; unmute and show resume them', async
   expect(await b.connect()).toBe(true);
   await b.expectConsuming('alice');
   await b.expectReceiving('alice');
+  const [audioBefore] = await b.consumersOfKind('alice', 'audio');
+  const [videoBefore] = await b.consumersOfKind('alice', 'video');
 
-  const audioOf = async () => (await b.consumersOfKind('alice', 'audio'))[0];
-  const packets = async (kind: 'audio' | 'video') =>
-    (await b.inbound('alice'))[kind]?.packetsReceived ?? 0;
-  const consumerBefore = (await audioOf())?.consumerId;
-  expect(consumerBefore).toBeTruthy();
-  expect((await audioOf())?.producerPaused).toBe(false);
-
-  // Mute through AVSettings, as the camera dock's mute button does.
+  // Mute through AVSettings, as the camera dock's mute button does: the
+  // microphone is released (no local audio track) and its producer closes.
   await a.setClientSetting('users.alice.muted', true);
-  await expect.poll(async () => (await audioOf())?.producerPaused).toBe(true);
   await expect
-    .poll(async () => (await a.status()).producers.find((p) => p.tag === 'mic')?.paused)
-    .toBe(true);
-  expect((await a.status()).localTracks.sort()).toEqual(['audio:disabled', 'video:enabled']);
-  await expect.poll(async () => (await b.tile('alice')).audioPausedMarker).toBe(true);
-  // The SFU stops forwarding: audio packets and energy stall while video keeps flowing.
-  const video1 = await packets('video');
-  await b.expectAudioStalled('alice');
-  expect(await packets('video')).toBeGreaterThan(video1);
-  // Paused, not closed: the same consumer stays.
-  expect((await audioOf())?.consumerId).toBe(consumerBefore);
-  const muted = (await b.inbound('alice')).audio;
+    .poll(async () => (await b.consumersOfKind('alice', 'audio')).length, { timeout: 15_000 })
+    .toBe(0);
+  await expect.poll(async () => (await a.status()).localTracks).toEqual(['video:enabled']);
+  expect((await a.status()).producers.map((p) => p.tag)).toEqual(['webcam']);
+  // Still available, so the dock offers unmute.
+  expect((await a.status()).audioEnabled).toBe(true);
+  // Video keeps flowing on the same consumer.
+  await b.expectReceiving('alice', ['video']);
+  expect((await b.consumersOfKind('alice', 'video'))[0]?.consumerId).toBe(videoBefore?.consumerId);
 
+  // Unmute: the microphone is captured again and heard on a new consumer.
   await a.setClientSetting('users.alice.muted', false);
-  await expect.poll(async () => (await audioOf())?.producerPaused).toBe(false);
-  await expect.poll(async () => (await b.tile('alice')).audioPausedMarker).toBe(false);
-  expect((await a.status()).localTracks.sort()).toEqual(['audio:enabled', 'video:enabled']);
-  // Audible again, not just packets: a still-disabled track would send silence.
-  await b.expectAudioResumed('alice', muted);
-  expect((await audioOf())?.consumerId).toBe(consumerBefore);
+  await expect
+    .poll(async () => (await b.consumersOfKind('alice', 'audio')).length, { timeout: 15_000 })
+    .toBe(1);
+  await expect
+    .poll(async () => (await a.status()).localTracks.sort())
+    .toEqual(['audio:enabled', 'video:enabled']);
+  expect((await b.consumersOfKind('alice', 'audio'))[0]?.consumerId).not.toBe(
+    audioBefore?.consumerId,
+  );
+  await b.expectAudioResumed('alice', undefined);
 
-  // Hide the camera: the video producer pauses the same way.
-  const videoOf = async () => (await b.consumersOfKind('alice', 'video'))[0];
+  // Hide the camera: released the same way, audio keeps flowing.
   await a.setClientSetting('users.alice.hidden', true);
-  await expect.poll(async () => (await videoOf())?.producerPaused).toBe(true);
-  expect((await a.status()).localTracks.sort()).toEqual(['audio:enabled', 'video:disabled']);
-  await expect.poll(async () => (await b.tile('alice')).videoPausedMarker).toBe(true);
-  await b.page.waitForTimeout(1_000);
-  const hidden1 = await packets('video');
-  await b.page.waitForTimeout(1_500);
-  expect(await packets('video')).toBe(hidden1);
+  await expect
+    .poll(async () => (await b.consumersOfKind('alice', 'video')).length, { timeout: 15_000 })
+    .toBe(0);
+  await expect.poll(async () => (await a.status()).localTracks).toEqual(['audio:enabled']);
+  expect((await a.status()).videoEnabled).toBe(true);
+  await b.expectReceiving('alice', ['audio']);
 
   await a.setClientSetting('users.alice.hidden', false);
-  await expect.poll(async () => (await videoOf())?.producerPaused).toBe(false);
-  await expect.poll(async () => (await b.tile('alice')).videoPausedMarker).toBe(false);
-  expect((await a.status()).localTracks.sort()).toEqual(['audio:enabled', 'video:enabled']);
-  // Real pictures again (a still-disabled track would send black frames).
+  await expect
+    .poll(async () => (await b.consumersOfKind('alice', 'video')).length, { timeout: 15_000 })
+    .toBe(1);
+  await expect
+    .poll(async () => (await a.status()).localTracks.sort())
+    .toEqual(['audio:enabled', 'video:enabled']);
+  // Real pictures again from the reopened camera.
   await b.expectReceiving('alice');
+  await b.expectVideoContent('alice');
 });
 
 test('turning the microphone off and on replaces the remote audio consumer', async ({ peers }) => {

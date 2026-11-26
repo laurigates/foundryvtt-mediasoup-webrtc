@@ -404,11 +404,14 @@ class AVSettings {
     if (!game.users.get(userId)) return null;
     const own = this.client.users?.[userId] ?? {};
     const reported = userId === SELF ? {} : (this.activity[userId] ?? {});
+    // As core: the local user counts as muted (hidden) while the client
+    // reports no audio (video).
+    const client = userId === SELF ? game.webrtc?.client : undefined;
     return {
       ...PER_USER_DEFAULTS,
       ...own,
-      muted: own.muted === true || reported.muted === true,
-      hidden: own.hidden === true || reported.hidden === true,
+      muted: own.muted === true || reported.muted === true || client?.isAudioEnabled() === false,
+      hidden: own.hidden === true || reported.hidden === true || client?.isVideoEnabled() === false,
       canBroadcastAudio: true,
       canBroadcastVideo: true,
       speaking: this.activity[userId]?.speaking === true,

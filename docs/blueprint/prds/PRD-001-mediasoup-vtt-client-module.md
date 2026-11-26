@@ -58,7 +58,7 @@ the requirements below are met through them.
 | FR-LMM-001 | The client shall request browser permission for microphone and camera when A/V connects.                     | Must     |
 | FR-LMM-002 | The client shall capture from the devices chosen in core Configure Audio/Video and follow changes to them.   | Must     |
 | FR-LMM-003 | The client shall create MediaSoup producers for the captured audio and video.                                | Must     |
-| FR-LMM-004 | Core mute/hide, push-to-talk and voice activation shall pause and resume the producers at the SFU.           | Must     |
+| FR-LMM-004 | Push-to-talk and voice activation shall pause and resume the mic producer at the SFU. Core mute/hide shall release the microphone/camera device and close its producer, and unmute/show shall capture it again. | Must     |
 | FR-LMM-005 | *(Withdrawn.)* The local preview is core's own dock tile; the module adds no overlay.                        | —        |
 
 ### Remote Media Management

@@ -31,10 +31,10 @@ v13 is the minimum supported version.
 | `getConnectedUsers()` | The local user; while connected or reconnecting, also every active Foundry user (a tile even without media). |
 | `getMediaStreamForUser(userId)` | The local stream, or the remote user's stream of consumed tracks. |
 | `getLevelsStreamForUser(userId)` | An audio-only stream for level detection; locally a clone of the mic track, so a paused producer does not silence voice activation. |
-| `isAudioEnabled()`, `isVideoEnabled()` | Whether a local audio / video track was captured. |
-| `toggleAudio(enable)` | Mute stops the broadcast; unmute resumes it only in "always" voice mode. |
+| `isAudioEnabled()`, `isVideoEnabled()` | Whether a local audio / video track was captured, or was released only because the user muted / hid it (core would otherwise refuse to unmute / show). |
+| `toggleAudio(enable)` | Mute stops the broadcast and releases the microphone (its producer closes); unmute captures it again and resumes the broadcast only in "always" voice mode. |
 | `toggleBroadcast(broadcast)` | Pauses or resumes the mic producer (push-to-talk, voice activation). A muted user never broadcasts. |
-| `toggleVideo(enable)` | Pauses or resumes the webcam producer (hidden by the user or the GM). |
+| `toggleVideo(enable)` | Hide releases the camera, so its light goes off, and closes the webcam producer; show captures it again (hidden by the user or the GM). |
 | `setUserVideo(userId, videoElement)` | Attaches the stream to a CameraViews `<video>`, mutes the local echo, applies "mute all" and the audio output device (`setSinkId`), and sets `data-mediasoup-audio-paused` / `data-mediasoup-video-paused` for paused remote producers. |
 | `onSettingsChanged(changed)` | Device changes recapture media; voice mode, mute and hide changes update the broadcast; display settings re-render the dock. |
 | `updateLocalStream()` | Recaptures local media with the current devices and swaps the new tracks into the existing producers. |
