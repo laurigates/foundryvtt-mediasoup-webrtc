@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.2](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.1...foundryvtt-mediasoup-webrtc-v1.1.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **client:** release the camera when hidden and the microphone when muted ([#186](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/186)) ([e9c2b57](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/e9c2b572463c20e729e45a8d5f10827c75a55f28))
+* **deps:** update all non-major dependencies ([#184](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/184)) ([e934c8f](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/e934c8ff78d0636888b7e7a1afc704b6ff4954c7))
+
+
+### Miscellaneous
+
+* **claude:** reconcile Claude Code config with the repo baseline ([#185](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/185)) ([267ce3e](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/267ce3eca8ad5bc6d7f3246977154693f00aa6ce))
+* **deps:** update vitest monorepo to v5.1.1 ([#182](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/182)) ([3154a7f](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/3154a7fcf41e787ba621a5658d0f54596c80a60f))
+
 ## [1.1.1](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.0...foundryvtt-mediasoup-webrtc-v1.1.1) (2026-11-18)
 
 
