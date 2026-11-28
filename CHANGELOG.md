@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.2...foundryvtt-mediasoup-webrtc-v1.1.3) (2026-11-28)
+
+
+### Documentation
+
+* make AGENTS.md the canonical agent instructions file ([#189](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/issues/189)) ([5c675f0](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/commit/5c675f093ac2f0f3bbfce797ac9a60829e654fcb))
+
 ## [1.1.2](https://github.com/laurigates/foundryvtt-mediasoup-webrtc/compare/foundryvtt-mediasoup-webrtc-v1.1.1...foundryvtt-mediasoup-webrtc-v1.1.2) (2026-11-26)
 
 
