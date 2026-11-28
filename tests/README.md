@@ -140,7 +140,7 @@ bun run test:e2e:report  # open the last HTML report
 - The SFU build needs the mediasoup worker's C++ toolchain; see
   `server/README.md`. When a proxy blocks meson's subproject archive
   downloads, pre-fetch them into one directory and set
-  `MESON_PACKAGE_CACHE_DIR` (details in `CLAUDE.md`, "Server build notes").
+  `MESON_PACKAGE_CACHE_DIR` (details in `AGENTS.md`, "Server build notes").
 
 ### Limits
 

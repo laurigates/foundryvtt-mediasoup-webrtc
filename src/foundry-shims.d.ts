@@ -1,7 +1,7 @@
 // Loose ambient types for the Foundry VTT client globals this module touches.
 // These are intentionally permissive (`any`-heavy) — just enough to keep `tsc`
 // green. Verify the real Foundry API before trusting any shape here:
-// https://foundryvtt.com/api/  (or the live browser console). See CLAUDE.md.
+// https://foundryvtt.com/api/  (or the live browser console). See AGENTS.md.
 //
 // The A/V shapes below follow the v14 API pages for foundry.av.AVClient,
 // foundry.av.AVMaster and foundry.av.AVSettings (14.368). They are identical
